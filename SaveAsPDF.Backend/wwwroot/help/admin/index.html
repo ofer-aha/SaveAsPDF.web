@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <title>SaveAsPDF — מדריך למנהלי מערכת</title>
+    <style>
+        :root {
+            --primary: #0078d4;
+            --primary-light: #deecf9;
+            --surface: #ffffff;
+            --surface-2: #fafafa;
+            --surface-3: #f3f4f6;
+            --border: #e5e7eb;
+            --border-strong: #d1d5db;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --warn: #b45309;
+            --danger: #b91c1c;
+            --good: #107c10;
+            --code-bg: #f1f3f5;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, "Segoe UI", Tahoma, sans-serif;
+            font-size: 15px;
+            line-height: 1.65;
+            margin: 0;
+            color: var(--text);
+            background: var(--surface-2);
+            direction: rtl;
+        }
+        .wrap {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            max-width: 1200px;
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+        nav.toc {
+            padding: 24px 18px;
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            position: sticky; top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            font-size: 13px;
+        }
+        nav.toc h3 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--muted);
+            letter-spacing: .5px;
+        }
+        nav.toc ol { list-style: none; padding: 0; margin: 0 0 14px 0; counter-reset: tocnum; }
+        nav.toc li { margin: 0; padding: 0; }
+        nav.toc a {
+            display: block; padding: 6px 8px; border-radius: 4px;
+            color: var(--text); text-decoration: none; counter-increment: tocnum;
+        }
+        nav.toc a::before { content: counter(tocnum) ". "; color: var(--muted); margin-left: 4px; }
+        nav.toc a:hover { background: var(--primary-light); color: var(--primary); }
+
+        main { padding: 32px 40px 80px; background: var(--surface); min-width: 0; }
+        header.top { padding-bottom: 18px; margin-bottom: 28px; border-bottom: 2px solid var(--border); }
+        header.top h1 { margin: 0 0 6px 0; font-size: 26px; color: var(--primary); }
+        header.top .sub { color: var(--muted); font-size: 14px; }
+        header.top .sub a { color: var(--muted); }
+
+        section { margin-top: 36px; scroll-margin-top: 16px; }
+        section h2 { font-size: 20px; margin: 0 0 12px 0; padding-bottom: 6px; border-bottom: 1px solid var(--border); color: var(--text); }
+        section h3 { font-size: 16px; margin: 22px 0 8px 0; }
+        section p { margin: 8px 0; }
+        section ul, section ol { padding-right: 22px; margin: 8px 0; }
+        section li { margin: 4px 0; }
+
+        code {
+            background: var(--code-bg); padding: 1px 6px; border-radius: 3px;
+            font-family: Consolas, "Courier New", monospace; font-size: 13px;
+            direction: ltr; display: inline-block;
+        }
+        pre {
+            background: var(--code-bg); padding: 12px 14px; border-radius: 6px;
+            font-family: Consolas, monospace; font-size: 12px;
+            overflow-x: auto; direction: ltr; text-align: left;
+            border: 1px solid var(--border);
+        }
+        kbd {
+            background: var(--surface-3); border: 1px solid var(--border-strong);
+            border-bottom-width: 2px; border-radius: 3px; padding: 1px 6px;
+            font-family: Consolas, monospace; font-size: 12px; direction: ltr; display: inline-block;
+        }
+        .card {
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 18px; margin: 12px 0;
+        }
+        .callout {
+            border-right: 4px solid var(--primary); background: var(--primary-light);
+            padding: 10px 14px; border-radius: 4px; margin: 12px 0; font-size: 14px;
+        }
+        .callout.warn { border-color: var(--warn); background: #fef3c7; }
+        .callout.warn strong { color: var(--warn); }
+        .callout.danger { border-color: var(--danger); background: #fee2e2; }
+        .callout.danger strong { color: var(--danger); }
+        .callout.good { border-color: var(--good); background: #dcfce7; }
+        .callout.good strong { color: var(--good); }
+
+        table.feat { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+        table.feat th, table.feat td { padding: 8px 10px; border: 1px solid var(--border); vertical-align: top; text-align: right; }
+        table.feat th { background: var(--surface-3); font-weight: 600; color: var(--muted); font-size: 13px; }
+        table.feat td:first-child { font-weight: 600; white-space: nowrap; width: 1%; }
+
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+            background: var(--surface-3); color: var(--muted); margin: 0 4px; font-weight: 600;
+            vertical-align: middle;
+        }
+        .badge.lock  { background: #fff4ce; color: #8a6800; }
+        .badge.user  { background: var(--primary-light); color: var(--primary); }
+        .badge.admin { background: #fde7e9; color: var(--danger); }
+
+        .step-list { counter-reset: step; padding: 0; list-style: none; margin: 12px 0; }
+        .step-list > li {
+            counter-increment: step; position: relative; padding-right: 38px; margin: 12px 0;
+        }
+        .step-list > li::before {
+            content: counter(step); position: absolute; right: 0; top: 0;
+            width: 26px; height: 26px; border-radius: 50%; background: var(--primary);
+            color: #fff; text-align: center; line-height: 26px; font-size: 13px; font-weight: 700;
+        }
+
+        footer {
+            margin-top: 60px; padding-top: 18px; border-top: 1px solid var(--border);
+            color: var(--muted); font-size: 12px; text-align: center;
+        }
+        footer a { color: var(--muted); }
+
+        @media (max-width: 800px) {
+            .wrap { grid-template-columns: 1fr; }
+            nav.toc { position: static; height: auto; border-left: none; border-bottom: 1px solid var(--border); }
+            main { padding: 20px 18px 60px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrap">
+
+<nav class="toc">
+    <h3>תוכן עניינים</h3>
+    <ol>
+        <li><a href="#overview">סקירה</a></li>
+        <li><a href="#auth">אימות וגישה</a></li>
+        <li><a href="#change-pwd">שינוי סיסמה</a></li>
+        <li><a href="#root">תיקיית הפרויקטים</a></li>
+        <li><a href="#policy">מדיניות חותמת</a></li>
+        <li><a href="#probe">בדיקת פרויקט</a></li>
+        <li><a href="#filesystem">מבנה תיקיות</a></li>
+        <li><a href="#xml">קבצי XML</a></li>
+        <li><a href="#api">נקודות API</a></li>
+        <li><a href="#deploy">פריסה ועדכונים</a></li>
+        <li><a href="#troubleshoot">פתרון תקלות</a></li>
+        <li><a href="#contact">יצירת קשר</a></li>
+    </ol>
+
+    <h3 style="margin-top:20px">קישורים מהירים</h3>
+    <p style="margin:0 8px;font-size:12px">
+        <a href="/admin">ממשק הניהול ↗</a><br/>
+        <a href="/help">מדריך משתמש ↗</a><br/>
+        <a href="/api/info">/api/info</a>
+    </p>
+</nav>
+
+<main>
+
+<header class="top">
+    <h1>SaveAsPDF — מדריך למנהלי מערכת</h1>
+    <div class="sub">
+        מסמך טכני להגדרת השרת, מדיניות חותמת, אבטחה ופתרון תקלות.<br/>
+        <a href="/admin">לממשק הניהול</a> · <a href="/help">למדריך המשתמש</a>
+    </div>
+</header>
+
+<section id="overview">
+    <h2>1. סקירה</h2>
+    <p>
+        ממשק הניהול של SaveAsPDF מאפשר:
+    </p>
+    <ul>
+        <li>הגדרת תיקיית הבסיס (Projects Root) שתחתיה נמצאות תיקיות הפרויקטים.</li>
+        <li>קביעת מדיניות (Policy) חותמת — אילו שדות ייאלצו תמיד-ON או תמיד-OFF, ואילו יישארו לבחירת המשתמש.</li>
+        <li>שינוי שם משתמש וסיסמה לכניסה לממשק.</li>
+        <li>בדיקת פרויקט (Probe) לאיתור בעיות תצורה.</li>
+    </ul>
+    <p>
+        ההגדרות נשמרות בקובץ JSON אחד בשרת:
+        <code>%LOCALAPPDATA%\SaveAsPDF\settings.json</code>.
+    </p>
+</section>
+
+<section id="auth">
+    <h2>2. אימות וגישה</h2>
+
+    <p>
+        ממשק הניהול וכל ה-endpoints הניהוליים מוגנים ב-HTTP Basic Authentication.
+        בכניסה ראשונה הדפדפן יבקש שם משתמש וסיסמה — הזן/י את ברירת המחדל:
+    </p>
+
+    <div class="card" style="font-size:14px">
+        <b>שם משתמש:</b> <code>admin</code><br/>
+        <b>סיסמה:</b> <code>admin</code>
+    </div>
+
+    <div class="callout danger">
+        <strong>⚠ חשוב:</strong> שנה/י את הסיסמה מיד לאחר ההתקנה הראשונית. כל עוד הסיסמה
+        היא ברירת המחדל, רצועת אזהרה צהובה תופיע בראש דף הניהול.
+    </div>
+
+    <h3>נתיבים מוגנים</h3>
+    <table class="feat">
+        <tr><th>נתיב</th><th>הגנה</th></tr>
+        <tr><td><code>/admin/*</code></td><td>דורש Basic Auth</td></tr>
+        <tr><td><code>/api/settings</code></td><td>דורש Basic Auth (GET ו-POST)</td></tr>
+        <tr><td><code>/api/admin/*</code></td><td>דורש Basic Auth</td></tr>
+        <tr><td><code>/api/info</code>, <code>/api/policy</code></td><td>פתוח (התוסף משתמש בהם ללא אימות)</td></tr>
+        <tr><td><code>/api/saveaspdf</code></td><td>פתוח (התוסף שולח שמירות ללא אימות)</td></tr>
+        <tr><td><code>/api/project/*</code>, <code>/api/contacts</code>, <code>/api/folders/*</code></td><td>פתוח</td></tr>
+        <tr><td><code>/help/*</code></td><td>פתוח</td></tr>
+    </table>
+</section>
+
+<section id="change-pwd">
+    <h2>3. שינוי סיסמה</h2>
+
+    <ol class="step-list">
+        <li>היכנס/י ל-<a href="/admin">/admin</a> (אם זו פעם ראשונה — admin/admin).</li>
+        <li>גלול/י לכרטיס <b>Admin Account</b>.</li>
+        <li>שנה/י <b>Username</b> אם רוצה (אופציונלי).</li>
+        <li>הזן/י <b>New Password</b> (לפחות 4 תווים).</li>
+        <li>לחץ/י <b>Update Credentials</b>.</li>
+        <li>הבקשה הבאה תדרוש את הסיסמה החדשה — הדפדפן יבקש להתחבר מחדש.</li>
+    </ol>
+
+    <h3>איפוס שכחת סיסמה</h3>
+    <p>
+        אם אבדה הסיסמה, ערוך/י ידנית את <code>%LOCALAPPDATA%\SaveAsPDF\settings.json</code>
+        בשרת ומחק/י את כל מקטע <code>"admin"</code>. בפעם הבאה תוכל/י להיכנס שוב עם
+        <code>admin</code> / <code>admin</code>:
+    </p>
+    <pre>{
+  "projectsRoot": "J:\\",
+  "stampPolicy": {...}
+  // הסר את "admin": {...}
+}</pre>
+    <p>אין צורך באתחול השרת — ההגדרות נטענות מחדש בכל קריאה.</p>
+
+    <h3>אבטחה טכנית</h3>
+    <ul>
+        <li>הסיסמה נשמרת hashed עם <b>PBKDF2-SHA256</b>, 100,000 iterations, מלח 16 בייט.</li>
+        <li>הסיסמה הגולמית אינה נכתבת מעולם לדיסק.</li>
+        <li>השוואה בזמן קבוע (<code>CryptographicOperations.FixedTimeEquals</code>) למניעת timing attacks.</li>
+    </ul>
+
+    <div class="callout warn">
+        <strong>HTTP, לא HTTPS:</strong> השרת רץ על HTTP (פורט 5176 כברירת מחדל).
+        עבור ייצור — מומלץ למקם מאחורי reverse proxy (IIS / nginx) עם תעודת SSL,
+        אחרת הסיסמה עוברת בטקסט גלוי על הרשת.
+    </div>
+</section>
+
+<section id="root">
+    <h2>4. תיקיית הפרויקטים</h2>
+
+    <p>
+        השדה <b>Projects Root Folder</b> בכרטיס "Settings" מגדיר את נתיב הבסיס של
+        כל הפרויקטים. ערך אופייני: <code>J:\</code>.
+    </p>
+
+    <h3>אם הכונן לא זמין כעת</h3>
+    <p>
+        אם הנתיב אינו זמין במכונת השרת בעת השמירה (כונן רשת מנותק וכו') — ההגדרה
+        תישמר בכל זאת, ותוצג הודעת אזהרה צהובה לצד "Saved":
+    </p>
+    <div class="card">
+        <i>Saved. Projects root = J:\<br/>Warning: folder does not exist or is offline: J:\</i>
+    </div>
+    <p>
+        זה מאפשר לקבע את כל ההגדרות בלי שתלות בזמינות הכונן ברגע השמירה.
+        כשהמשתמש ינסה לשמור PDF דרך התוסף וה-J: מנותק — תופיע שגיאה אמיתית עם הקשר.
+    </p>
+</section>
+
+<section id="policy">
+    <h2>5. מדיניות חותמת (Stamp Policy)</h2>
+
+    <p>
+        טבלת המדיניות בכרטיס "Settings" כוללת 8 שדות (האב הראשי + 7 שדות החותמת).
+        לכל שדה ניתן לבחור אחת משלוש אפשרויות:
+    </p>
+
+    <table class="feat">
+        <tr><th>אפשרות</th><th>אפקט בתוסף</th><th>אפקט בשרת</th></tr>
+        <tr>
+            <td><span class="badge user">User</span></td>
+            <td>המשתמש בוחר חופשי</td>
+            <td>הערך מהבקשה נשמר כמו שהוא</td>
+        </tr>
+        <tr>
+            <td><span class="badge admin">Force ON</span></td>
+            <td>תיבת הסימון נעולה למצב דלוק עם <span class="badge lock">🔒</span></td>
+            <td>השרת מחליף את הערך ל-true גם אם הבקשה שלחה false</td>
+        </tr>
+        <tr>
+            <td><span class="badge admin">Force OFF</span></td>
+            <td>תיבת הסימון נעולה למצב כבוי עם <span class="badge lock">🔒</span></td>
+            <td>השרת מחליף את הערך ל-false</td>
+        </tr>
+    </table>
+
+    <h3>אכיפה דו-שכבתית</h3>
+    <ul>
+        <li><b>שכבה 1 (UX):</b> התוסף קורא את <code>/api/policy</code> בעת הטעינה ומשתק
+            את התיבות הנעולות בלוח ההגדרות.</li>
+        <li><b>שכבה 2 (אבטחה):</b> לפני יצירת ה-PDF, ה-controller מפעיל
+            <code>StampPolicy.ApplyTo(stamp)</code> ומחליף ערכים שננעלו — אפילו אם לקוח
+            שולח בקשה ידנית עם ערכים אחרים, הם יידחו.</li>
+    </ul>
+
+    <h3>זיהוי בקובץ ה-PDF</h3>
+    <p>
+        כאשר מדיניות הוחלה על הבקשה, החותמת בתחתיתה מציגה הודעה קטנה באפור:
+        <i>"[נעול] חלק מהשדות נקבעו על-ידי מנהל המערכת"</i>.
+    </p>
+
+    <h3>שיקולי שמירה</h3>
+    <p>
+        אחרי לחיצה על <b>Save</b>, הטבלה מתרעננת מתוך התשובה של השרת — מה שאתה רואה
+        זה מה ש-settings.json קלט בפועל. אם משהו לא נשמר, סימן שיש בעיה — בדוק את
+        סעיף פתרון התקלות למטה.
+    </p>
+</section>
+
+<section id="probe">
+    <h2>6. בדיקת פרויקט (Probe)</h2>
+
+    <p>
+        בכרטיס "Settings" יש כלי בדיקה: הזן/י מספר פרויקט (לדוגמה <code>1000-2-1</code>)
+        ולחץ/י <b>Probe</b>. השרת ינסה לפתור את הנתיב לפי הכללים ולהציג:
+    </p>
+    <ul>
+        <li>סטטוס (קיים / לא קיים)</li>
+        <li>הנתיב המלא הצפוי</li>
+        <li>שם הפרויקט (מתוך <code>.SaveAsPDF_Project.xml</code>)</li>
+        <li>הערות פרויקט</li>
+        <li>רשימת עובדים (מתוך <code>.SaveAsPDF_Emploeeys.xml</code>) — מנהל מסומן בתג צהוב</li>
+        <li>כפתור להצגת ה-JSON המלא לצורכי דיבאג</li>
+    </ul>
+    <p>שימושי לוודא ש:
+    <ul>
+        <li>הנתיב מתורגם נכון לפי <code>floor(num/100)</code></li>
+        <li>קבצי ה-XML של הפרויקט קיימים ובפורמט תקין</li>
+        <li>רשימת העובדים נקראת כראוי</li>
+    </ul>
+    </p>
+</section>
+
+<section id="filesystem">
+    <h2>7. מבנה תיקיות הפרויקט</h2>
+
+    <p>
+        מספרי פרויקט ממופים אוטומטית לתיקיה ב-2 רמות:
+    </p>
+    <pre>{ProjectsRoot}\{floor(num/100):D2}\{num}\</pre>
+    <p>דוגמאות:</p>
+    <table class="feat">
+        <tr><th>מספר פרויקט</th><th>נתיב</th></tr>
+        <tr><td><code>123</code></td><td><code>J:\01\123\</code></td></tr>
+        <tr><td><code>1000</code></td><td><code>J:\10\1000\</code></td></tr>
+        <tr><td><code>1234</code></td><td><code>J:\12\1234\</code></td></tr>
+        <tr><td><code>1000-2-1</code></td><td><code>J:\10\1000-2-1\</code> (החלק הראשוני בלבד נחשב לרמה 1)</td></tr>
+    </table>
+
+    <h3>קבצי שמירה בתיקיית הפרויקט</h3>
+    <ul>
+        <li><code>YYYYMMDD_HHmm_subject.pdf</code> — הודעת ה-PDF</li>
+        <li>קבצים מצורפים — ישירות בשורש (או בתת-תיקיה שנבחרה)</li>
+        <li>בהתנגשות שמות: <code>file.txt</code> → <code>file(1).txt</code> → <code>file(2).txt</code>...</li>
+    </ul>
+</section>
+
+<section id="xml">
+    <h2>8. קבצי XML של פרויקט</h2>
+
+    <p>בכל תיקיית פרויקט יכולים להופיע (אופציונלי) שני קבצים:</p>
+
+    <h3><code>.SaveAsPDF_Project.xml</code></h3>
+    <p>פרטי הפרויקט. נטען אוטומטית בעת הקלדת מספר הפרויקט בתוסף.</p>
+    <pre>&lt;?xml version="1.0"?&gt;
+&lt;ProjectModel&gt;
+  &lt;ProjectNumber&gt;1000&lt;/ProjectNumber&gt;
+  &lt;ProjectName&gt;פרויקט לדוגמה&lt;/ProjectName&gt;
+  &lt;ProjectNotes&gt;הערות חופשיות...&lt;/ProjectNotes&gt;
+&lt;/ProjectModel&gt;</pre>
+
+    <h3><code>.SaveAsPDF_Emploeeys.xml</code></h3>
+    <p>רשימת עובדי הפרויקט (כן, השם המקורי מכיל שגיאת כתיב).</p>
+    <pre>&lt;?xml version="1.0"?&gt;
+&lt;ArrayOfEmployeeModel&gt;
+  &lt;EmployeeModel&gt;
+    &lt;Id&gt;1&lt;/Id&gt;
+    &lt;FirstName&gt;ישראל&lt;/FirstName&gt;
+    &lt;LastName&gt;ישראלי&lt;/LastName&gt;
+    &lt;EmailAddress&gt;israel@example.com&lt;/EmailAddress&gt;
+    &lt;PhoneNumber&gt;050-0000000&lt;/PhoneNumber&gt;
+    &lt;IsLeader&gt;true&lt;/IsLeader&gt;
+  &lt;/EmployeeModel&gt;
+&lt;/ArrayOfEmployeeModel&gt;</pre>
+</section>
+
+<section id="api">
+    <h2>9. נקודות API</h2>
+
+    <table class="feat">
+        <tr><th>שיטה / נתיב</th><th>אימות</th><th>מטרה</th></tr>
+        <tr><td><code>GET /api/info</code></td><td>פתוח</td><td>גרסה ושם השירות</td></tr>
+        <tr><td><code>GET /api/policy</code></td><td>פתוח</td><td>מדיניות החותמת (התוסף משתמש)</td></tr>
+        <tr><td><code>POST /api/saveaspdf</code></td><td>פתוח</td><td>יצירת PDF + שמירת קבצים מצורפים</td></tr>
+        <tr><td><code>GET /api/project/{num}</code></td><td>פתוח</td><td>פרטי פרויקט (XML)</td></tr>
+        <tr><td><code>POST /api/project/{num}</code></td><td>פתוח</td><td>יצירת תיקיית פרויקט חדשה</td></tr>
+        <tr><td><code>GET /api/project/{num}/folders</code></td><td>פתוח</td><td>עץ תיקיות</td></tr>
+        <tr><td><code>POST/PATCH/DELETE /api/project/{num}/folders</code></td><td>פתוח</td><td>יצירה/שינוי/מחיקת תיקיות</td></tr>
+        <tr><td><code>GET /api/contacts</code></td><td>פתוח</td><td>אנשי קשר (Windows Search)</td></tr>
+        <tr><td><code>GET /api/settings</code></td><td>Basic Auth</td><td>קריאת ההגדרות</td></tr>
+        <tr><td><code>POST /api/settings</code></td><td>Basic Auth</td><td>שמירת ההגדרות</td></tr>
+        <tr><td><code>GET /api/admin/me</code></td><td>Basic Auth</td><td>שם משתמש + האם בסיסמת ברירת מחדל</td></tr>
+        <tr><td><code>POST /api/admin/password</code></td><td>Basic Auth</td><td>שינוי שם משתמש/סיסמה</td></tr>
+    </table>
+
+    <h3>דוגמת קריאה עם Basic Auth (curl)</h3>
+    <pre>curl -u admin:admin http://localhost:5176/api/settings</pre>
+</section>
+
+<section id="deploy">
+    <h2>10. פריסה ועדכונים</h2>
+
+    <h3>הפעלה</h3>
+    <pre>cd C:\Dev\SaveAsPDF\SaveAsPDF.Web\SaveAsPDF.Backend
+dotnet build
+dotnet run</pre>
+    <p>השירות מאזין ב-<code>http://localhost:5176</code> כברירת מחדל.</p>
+
+    <h3>עדכון לאחר שינוי קוד</h3>
+    <ol>
+        <li>עצור/י את התהליך הרץ (<kbd>Ctrl</kbd>+<kbd>C</kbd> בחלון המסוף).</li>
+        <li><code>dotnet build</code> — אם התהליך עוד רץ, ייכשל עם "file in use".</li>
+        <li><code>dotnet run --no-build</code> — להעלאה מהירה לאחר build מוצלח.</li>
+    </ol>
+
+    <div class="callout warn">
+        <strong>שכיח:</strong> שינויי <code>StampInfo</code>, <code>StampPolicy</code> או
+        <code>PdfService</code> דורשים rebuild + restart. פוס לעדכן את ה-frontend בלבד
+        (taskpane) לא יספיק — ה-backend הישן יתעלם משדות חדשים.
+    </div>
+
+    <h3>גיבוי הגדרות</h3>
+    <p>
+        כל ההגדרות (כולל hash הסיסמה) נשמרות בקובץ אחד:
+        <code>%LOCALAPPDATA%\SaveAsPDF\settings.json</code>. גבה את הקובץ הזה לצורך שחזור
+        תצורה במקרה של תקלת מערכת.
+    </p>
+</section>
+
+<section id="troubleshoot">
+    <h2>11. פתרון תקלות</h2>
+
+    <table class="feat">
+        <tr><th>הסימפטום</th><th>הסיבה / הפתרון</th></tr>
+        <tr>
+            <td>הגדרות לא נשמרות בממשק הניהול</td>
+            <td>
+                השרת רץ עם בינארי ישן (לפני העדכון שמטפל ב-StampPolicy).
+                עצור/י את התהליך, הרץ <code>dotnet build</code>, והפעל מחדש.
+            </td>
+        </tr>
+        <tr>
+            <td>"Build FAILED — file is locked by SaveAsPDF.Backend (PID xxxx)"</td>
+            <td>
+                התהליך הקיים מחזיק ב-<code>SaveAsPDF.Backend.exe</code>. עצור/י אותו דרך
+                המסוף הרץ או דרך <code>Stop-Process -Id xxxx -Force</code>.
+            </td>
+        </tr>
+        <tr>
+            <td>בקשת אימות מתפרצת על כל בקשה</td>
+            <td>
+                הדפדפן זוכר Basic Auth רק עד סגירת החלון. אם הכניסה מתבקשת על כל מסך —
+                ייתכן שמשהו ב-cache נמחק. הקלד שוב את שם המשתמש והסיסמה.
+            </td>
+        </tr>
+        <tr>
+            <td>שכחתי את הסיסמה</td>
+            <td>
+                ערוך/י את <code>%LOCALAPPDATA%\SaveAsPDF\settings.json</code> ומחק/י את
+                מקטע <code>"admin"</code>. ברירת המחדל admin/admin תחזור.
+            </td>
+        </tr>
+        <tr>
+            <td>"Folder does not exist: J:\\" בעת השמירה</td>
+            <td>
+                כונן ה-J: לא ממופה במכונת השרת. ההגדרה תישמר בכל זאת. בעת שמירת PDF
+                התוסף יקבל שגיאה ויראה אותה למשתמש. ודא/י שהשרת רץ עם הרשאות הולמות
+                לכונן הרשת.
+            </td>
+        </tr>
+        <tr>
+            <td>התוסף לא רואה את ה-Stamp Policy שהוגדרה</td>
+            <td>
+                התוסף קורא מ-<code>/api/policy</code> בעת טעינת הלוח. ייתכן ש-cache.
+                סגור/י וחזור/י לפתוח את הלוח, או הפעל מחדש את Outlook.
+            </td>
+        </tr>
+        <tr>
+            <td>PDF נשמר אך אין אכיפה של מדיניות</td>
+            <td>
+                ודא/י ש-<code>settings.json</code> מכיל מקטע <code>stampPolicy</code> עם
+                ערכים שאינם null. בדוק/י עם:
+                <pre style="margin:6px 0">curl http://localhost:5176/api/policy</pre>
+            </td>
+        </tr>
+        <tr>
+            <td>שגיאת CORS בעת קריאה מ-https://localhost:3000</td>
+            <td>
+                במצב פיתוח Webpack DevServer רץ על 3000, ה-backend על 5176. הוגדר CORS
+                ב-<code>Program.cs</code> שמתיר את 3000. אם החלפת פורט — עדכן/י את ה-policy.
+            </td>
+        </tr>
+    </table>
+</section>
+
+<section id="contact">
+    <h2>12. יצירת קשר</h2>
+    <div class="card">
+        <p style="margin:0">
+            <b>SaveAsPDF</b> פותח על-ידי <b>Ofer Aharon</b><br/>
+            דוא"ל: <a href="mailto:ofer@sw-eng.co.il">ofer@sw-eng.co.il</a>
+        </p>
+    </div>
+</section>
+
+<footer>
+    SaveAsPDF &copy; <span id="appVersion">…</span> · <a href="/help">מדריך משתמש</a> · <a href="/admin">ממשק ניהול</a>
+</footer>
+
+</main>
+
+</div>
+
+<script>
+    fetch("/api/info")
+        .then(r => r.json())
+        .then(j => {
+            const el = document.getElementById("appVersion");
+            if (el && j.version) el.textContent = "v" + j.version;
+        })
+        .catch(() => {});
+</script>
+
+</body>
+</html>

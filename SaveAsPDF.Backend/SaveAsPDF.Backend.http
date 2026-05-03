@@ -1,0 +1,6 @@
+@SaveAsPDF.Backend_HostAddress = http://localhost:5176
+
+GET {{SaveAsPDF.Backend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

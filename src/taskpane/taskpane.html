@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <title>SaveAsPDF</title>
+
+    <!-- Office.js MUST be loaded -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+    <style>
+        :root {
+            --primary: #0078d4;
+            --primary-hover: #106ebe;
+            --primary-light: #deecf9;
+            --surface: #ffffff;
+            --surface-2: #fafafa;
+            --border: #e5e7eb;
+            --border-strong: #d1d5db;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --danger: #c53030;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+            font-size: 14px;
+            direction: rtl;
+            text-align: right;
+            padding: 14px 14px 80px;
+            background: var(--surface);
+            color: var(--text);
+            margin: 0;
+        }
+
+        h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
+
+        /* === Header === */
+        .app-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .app-header img { width: 32px; height: 32px; }
+        .app-header h2 { flex: 1; }
+        .icon-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            padding: 6px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            transition: background .15s, color .15s;
+        }
+        .icon-btn:hover { 
+            background: var(--surface-2); 
+            color: var(--text);
+            text-decoration: underline
+         }
+
+        /* === Form === */
+        label {
+            display: block;
+            margin-top: 12px;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        input[type="text"], textarea, select {
+            width: 100%;
+            padding: 8px 10px;
+            font-size: 14px;
+            font-family: inherit;
+            margin-top: 5px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        input[type="text"]:focus, textarea:focus, select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.18);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+            line-height: 1.4;
+        }
+
+        /* === Card (replaces fieldset) === */
+        .card {
+            margin-top: 18px;
+            padding: 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .card-title {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--muted);
+            margin: 0 0 10px 0;
+            text-transform: none;
+        }
+        fieldset {
+            margin: 18px 0 0 0;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-2);
+        }
+        legend {
+            padding: 0 8px;
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        fieldset label, .card label {
+            font-weight: normal;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        fieldset label > input[type=checkbox],
+        .card label > input[type=checkbox] {
+            margin-left: 6px;
+            transform: translateY(1px);
+        }
+
+        /* === Buttons === */
+        button {
+            margin-top: 14px;
+            padding: 9px 16px;
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            border-radius: 6px;
+            border: 1px solid var(--border-strong);
+            background: var(--surface);
+            color: var(--text);
+            transition: background .15s, border-color .15s, color .15s;
+        }
+        button:hover { background: var(--surface-2); }
+        button:disabled { opacity: 0.55; cursor: default; }
+
+        button.primary, #saveBtn {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary);
+            font-weight: 600;
+        }
+        button.primary:hover, #saveBtn:hover {
+            background: var(--primary-hover);
+            border-color: var(--primary-hover);
+        }
+
+        #saveBtn {
+            width: 100%;
+            margin-top: 18px;
+            padding: 10px;
+            font-size: 15px;
+        }
+
+        /* === Status === */
+        #status {
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--muted);
+            min-height: 18px;
+        }
+
+        /* === Tabs === */
+        .tabs {
+            display: flex;
+            margin-top: 14px;
+            border-bottom: 1px solid var(--border);
+            gap: 4px;
+        }
+        .tab-btn {
+            flex: 1;
+            margin: 0;
+            padding: 9px 6px;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            border-bottom: 2px solid transparent;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--muted);
+            transition: color .15s, border-color .15s;
+        }
+        .tab-btn:hover { color: var(--text); background: transparent; }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .tab-content { margin-top: 8px; }
+        .tab-panel { display: none; padding: 6px 0; }
+        .tab-panel.active { display: block; }
+
+        /* === Credit footer === */
+        .credit-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px 14px 10px;
+            font-size: 11px;
+            color: var(--muted);
+            text-align: center;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            line-height: 1.5;
+            direction: ltr;
+        }
+        .credit-footer a { color: var(--muted); text-decoration: none; }
+        .credit-footer a:hover { text-decoration: underline; }
+        body.overlay-open .credit-footer { display: none; }
+
+        /* === Settings panel (uses contact-picker palette) === */
+        #settingsPanel {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: var(--surface);
+            z-index: 1000;
+            flex-direction: column;
+            direction: rtl;
+            overflow-y: auto;
+        }
+        #settingsPanel .sp-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 14px 80px;
+        }
+        #settingsPanel .sp-section {
+            margin-bottom: 14px;
+            padding: 12px 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        #settingsPanel .sp-section h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        #settingsPanel .sp-section .sp-hint {
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        #settingsPanel .sp-section label {
+            font-weight: normal;
+            margin-top: 6px;
+            display: block;
+        }
+        #settingsPanel details {
+            margin-top: 8px;
+            border-top: 1px dashed var(--border);
+            padding-top: 8px;
+        }
+        #settingsPanel summary {
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--muted);
+            user-select: none;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        #settingsPanel .sp-footer {
+            position: sticky;
+            bottom: 0;
+            display: flex;
+            gap: 8px;
+            padding: 10px 14px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+        }
+        #settingsPanel .sp-footer button { margin: 0; }
+
+        /* === Color swatch grid for category creation === */
+        .swatch-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .swatch {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 4px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            position: relative;
+        }
+        .swatch.selected {
+            border-color: var(--text);
+            box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary);
+        }
+        .new-cat-form {
+            margin-top: 8px;
+            padding: 10px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: var(--surface);
+        }
+
+        /* === Settings panel tabs === */
+        .sp-tabs {
+            display: flex;
+            background: #f5f5f5;
+            border-bottom: 1px solid var(--border);
+            padding: 0 6px;
+            flex-shrink: 0;
+            gap: 2px;
+        }
+        .sp-tab-btn {
+            flex: 1;
+            margin: 0;
+            padding: 9px 4px;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            border-bottom: 2px solid transparent;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: color .15s, border-color .15s;
+            white-space: nowrap;
+        }
+        .sp-tab-btn:hover { color: var(--text); background: transparent; }
+        .sp-tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            background: transparent;
+        }
+        .sp-tab-panel { display: none; padding: 0; }
+        .sp-tab-panel.active { display: block; }
+
+        /* === Category list (settings) === */
+        .cat-list {
+            margin-top: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+        }
+        .cat-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+        }
+        .cat-row:last-child { border-bottom: none; }
+        .cat-row:hover { background: var(--surface-2); }
+        .cat-row.selected {
+            background: var(--primary-light);
+            color: var(--primary);
+            font-weight: 600;
+        }
+        .cat-swatch {
+            width: 14px; height: 14px;
+            border-radius: 3px;
+            flex-shrink: 0;
+            border: 1px solid rgba(0,0,0,.1);
+        }
+        .cat-name { flex: 1; font-size: 13px; }
+        .cat-check { color: var(--primary); font-weight: 700; }
+        .cat-empty {
+            padding: 14px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .cat-fallback-note {
+            font-size: 11px; color: var(--muted);
+            margin-top: 6px; line-height: 1.4;
+        }
+
+        /* === Slider-style toggle (replaces native checkbox) ===
+           Applied to:
+             • all checkboxes inside the settings panel
+             • master toggles directly under the main fieldset (not the attachments list)
+             • the forward-to-leader row
+           Page is RTL, so the knob starts on the right and slides LEFT when checked. */
+        #settingsPanel input[type="checkbox"],
+        fieldset > label > input[type="checkbox"],
+        #forwardToLeaderRow input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 34px;
+            height: 18px;
+            border-radius: 12px;
+            background: #ccc;
+            position: relative;
+            cursor: pointer;
+            margin: 0 0 0 8px;
+            transition: background .2s;
+            vertical-align: middle;
+            flex-shrink: 0;
+            border: none;
+            outline: none;
+            transform: none;   /* override generic fieldset rule above */
+        }
+        #settingsPanel input[type="checkbox"]::before,
+        fieldset > label > input[type="checkbox"]::before,
+        #forwardToLeaderRow input[type="checkbox"]::before {
+            content: "";
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px;
+            right: 2px;
+            transition: transform .2s;
+            box-shadow: 0 1px 2px rgba(0,0,0,.25);
+        }
+        #settingsPanel input[type="checkbox"]:checked,
+        fieldset > label > input[type="checkbox"]:checked,
+        #forwardToLeaderRow input[type="checkbox"]:checked {
+            background: var(--primary);
+        }
+        #settingsPanel input[type="checkbox"]:checked::before,
+        fieldset > label > input[type="checkbox"]:checked::before,
+        #forwardToLeaderRow input[type="checkbox"]:checked::before {
+            transform: translateX(-16px);
+        }
+        #settingsPanel input[type="checkbox"]:disabled,
+        fieldset > label > input[type="checkbox"]:disabled,
+        #forwardToLeaderRow input[type="checkbox"]:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+        }
+
+        /* === Default sub-folder list (settings) === */
+        .sf-list {
+            margin-top: 8px;
+            max-height: 180px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+        }
+        .sf-row {
+            padding: 7px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+        }
+        .sf-row:last-child { border-bottom: none; }
+        .sf-row:hover { background: var(--surface-2); }
+        .sf-row.selected {
+            background: var(--primary-light);
+            color: var(--primary);
+            font-weight: 600;
+        }
+        .sf-empty {
+            padding: 14px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .sf-input-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .sf-input-row input { flex: 1; margin: 0; }
+        .sf-input-row button { margin: 0; white-space: nowrap; }
+        .sf-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .sf-actions button { flex: 1; margin: 0; font-size: 12px; }
+
+        /* === Folder tree === */
+        .folder-tree {
+            max-height: 280px;
+            overflow-y: auto;
+            font-size: 13px;
+            user-select: none;
+        }
+        .folder-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 6px;
+            cursor: pointer;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        .folder-row:hover { background: var(--surface-2); }
+        .folder-row.selected { background: var(--primary-light); }
+        .folder-chevron {
+            display: inline-block;
+            width: 14px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 10px;
+            cursor: pointer;
+            transition: transform .15s;
+        }
+        .folder-chevron.expanded { transform: rotate(90deg); }
+        .folder-chevron.empty { visibility: hidden; }
+        .folder-icon { font-size: 14px; }
+        .folder-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .folder-children { padding-right: 14px; }
+
+        /* Context menu hover state */
+        #folderCtxMenu .ctx-item:hover { background: var(--surface-2); }
+
+        /* ============== Inline contact picker (Outlook-style) ============== */
+        #contactPickerPanel {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: #fff;
+            z-index: 1000;
+            flex-direction: column;
+            direction: ltr;
+        }
+        .cp-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e5e5;
+            background: #fafafa;
+            flex-shrink: 0;
+        }
+        .cp-header button {
+            margin: 0; padding: 0 4px;
+            border: none; background: none;
+            font-size: 18px; cursor: pointer; line-height: 1;
+        }
+        .cp-header strong {
+            font-size: 14px;
+            direction: rtl;
+            flex: 1;
+            text-align: right;
+        }
+        .cp-search {
+            display: flex;
+            align-items: stretch;
+            margin: 8px 10px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            background: #fff;
+            flex-shrink: 0;
+        }
+        .cp-search input {
+            flex: 1;
+            margin: 0; padding: 6px 8px;
+            border: none; outline: none;
+            font-size: 13px;
+            direction: rtl;
+            background: transparent;
+        }
+        .cp-search button {
+            display: none;
+            margin: 0; padding: 0 8px;
+            border: none; background: none;
+            cursor: pointer;
+            color: #888; font-size: 14px;
+        }
+        .cp-main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            border-top: 1px solid #eee;
+        }
+        .cp-sidebar {
+            width: 130px;
+            min-width: 100px;
+            background: #f7f7f7;
+            border-right: 1px solid #eee;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        .cp-folder {
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            border-left: 3px solid transparent;
+            direction: rtl;
+            line-height: 1.3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .cp-folder:hover { background: #ececec; }
+        .cp-folder.active {
+            background: #e5f0fb;
+            border-left-color: #0078d4;
+            font-weight: 600;
+        }
+        .cp-folder .cnt {
+            color: #999;
+            font-size: 10px;
+            margin-right: 4px;
+        }
+        .cp-list { flex: 1; overflow-y: auto; }
+        .cp-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .cp-row:hover { background: #f5f5f5; }
+        .cp-row.selected { background: #e5f0fb; }
+        .cp-row input[type=checkbox] {
+            flex-shrink: 0;
+            margin: 0;
+            width: 14px; height: 14px;
+            cursor: pointer;
+        }
+        .cp-avatar {
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            color: #fff;
+            font-weight: 600;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            user-select: none;
+        }
+        .cp-info { flex: 1; min-width: 0; direction: rtl; text-align: right; }
+        .cp-name {
+            font-weight: 600;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .cp-email {
+            font-size: 11px;
+            color: #666;
+            direction: ltr;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            unicode-bidi: embed;
+        }
+        .cp-empty {
+            padding: 30px 20px;
+            text-align: center;
+            color: #888;
+            direction: rtl;
+        }
+        .cp-footer {
+            padding: 8px 10px;
+            border-top: 1px solid #ddd;
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+            background: #fafafa;
+        }
+        .cp-footer .primary {
+            flex: 1;
+            margin: 0; padding: 8px;
+            background: #0078d4;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .cp-footer .primary:disabled { background: #aaa; cursor: default; }
+        .cp-footer .secondary {
+            margin: 0; padding: 8px 14px;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+
+<body>
+    <div id="backendBanner" style="display:none;background:#c53030;color:#fff;padding:10px 14px;margin:-14px -14px 12px;font-size:13px;font-weight:600;text-align:center;line-height:1.4">
+        <span style="font-size:16px">⚠</span>
+        השרת הראשי אינו זמין — הפעל מחדש את Outlook או פנה למנהל המערכת
+    </div>
+
+    <div class="app-header">
+        <img src="./assets/saveaspdf-logo.png" alt="SaveAsPDF" />
+        <h2>SaveAsPDF</h2>
+        <h4><button id="openSettingsBtn" type="button" class="icon-btn" title="הגדרות" aria-label="Settings">⚙ הגדרות</button>
+            <a id="helpLink"
+               href="#"
+               class="icon-btn"
+               target="_blank"
+               rel="noopener noreferrer"
+               title="עזרה"
+               aria-label="Help">❓ עזרה</a></h4>
+    </div>
+
+    <!-- Title -->
+    <!--<h2>SaveAsPDF</h2>-->
+    <!-- Project ID -->
+    <label for="projectId">
+        מספר פרויקט
+    </label>
+    <input id="projectId"
+           type="text"
+           placeholder="לדוגמה: 1000-2-1" />
+
+
+    <!-- Project Name -->
+    <label for="projectName">
+        שם הפרויקט
+    </label>
+    <input id="projectName"
+           type="text"
+           placeholder="לדוגמה: פיתוח מערכת CRM" />
+    <label for="projectLeader">
+        מנהל/ת פרויקט
+    </label>
+    
+    <!-- project leader selection -->
+    <div style="position:relative">
+        <div style="display:flex; gap:6px;">
+            <input id="projectLeader"
+                   type="text"
+                   placeholder="בחר/י מנהל/ת מאנשי הקשר"
+                   autocomplete="off"
+                   style="flex:1" />
+            <button type="button" id="pickLeaderBtn">בחר</button>
+        </div>
+        <div id="leaderDropdown"
+             style="display:none;position:absolute;left:0;right:0;top:100%;
+                    background:#fff;border:1px solid #ccc;border-top:none;
+                    box-shadow:0 4px 8px rgba(0,0,0,.12);z-index:200;
+                    max-height:200px;overflow-y:auto;border-radius:0 0 4px 4px"></div>
+    </div>
+
+    <!-- Message marking options -->
+    <fieldset>
+        <legend>אופן סימון ההודעה לאחר השמירה</legend>
+
+        <label>
+            <input type="checkbox" id="optStamp" checked />
+            הוספת חותמת עם פרטי הפרויקט בגוף ההודעה
+        </label>
+
+        <label>
+            <input type="checkbox" id="optCategory" checked />
+            שיוך קטגוריה «SaveAsPDF – Processed»
+        </label>
+        <!-- Tabs header -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="attachmentsTab">
+                קבצים מצורפים
+            </button>
+
+            <button class="tab-btn" data-tab="employeesTab">
+                עובדי פרויקט
+            </button>
+
+            <button class="tab-btn" data-tab="foldersTab">
+                תיקיות
+            </button>
+        </div>
+
+        <!-- Tabs content -->
+        <div class="tab-content">
+
+            <!-- Attachments tab -->
+            <div id="attachmentsTab" class="tab-panel active">
+                <p>רשימת קבצים מצורפים תוצג כאן</p>
+            </div>
+
+            <!-- Employees tab -->
+            <div id="employeesTab" class="tab-panel">
+                <p>רשימת עובדי הפרויקט תוצג כאן</p>
+            </div>
+
+            <!-- Folders tab -->
+            <div id="foldersTab" class="tab-panel">
+                <div id="folderTree" class="folder-tree">
+                    <div style="color:#888;font-size:13px;padding:10px 0">הזן מספר פרויקט כדי לטעון את עץ התיקיות</div>
+                </div>
+            </div>
+
+        </div>
+    </fieldset>
+
+    <!-- Destination indicator (shown when folder tree loaded) -->
+    <div id="destBanner" style="display:none;margin-top:8px;padding:6px 10px;background:var(--primary-light);border-radius:6px;font-size:12px">
+        <span style="color:var(--muted)">שמירה אל:</span>
+        <span id="destPath" style="font-weight:600;direction:ltr"></span>
+    </div>
+
+    <!-- Folder context menu (floating) -->
+    <div id="folderCtxMenu" style="display:none;position:fixed;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:1500;min-width:170px;font-size:13px;direction:rtl;">
+        <div class="ctx-item" data-action="create"  style="padding:8px 12px;cursor:pointer">+ צור תיקיה חדשה</div>
+        <div class="ctx-item" data-action="rename"  style="padding:8px 12px;cursor:pointer">✎ שנה שם</div>
+        <div class="ctx-item" data-action="delete"  style="padding:8px 12px;cursor:pointer;color:#c53030">🗑 מחק</div>
+        <div style="height:1px;background:#eee;margin:2px 0"></div>
+        <div class="ctx-item" data-action="refresh" style="padding:8px 12px;cursor:pointer">🔄 רענן עץ תיקיות</div>
+    </div>
+
+    <!-- Reusable modal dialog (replaces prompt/confirm/alert which are blocked in Outlook task panes) -->
+    <div id="modalBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center;direction:rtl;">
+        <div style="background:#fff;border-radius:8px;padding:18px 18px 14px;max-width:320px;width:90%;box-shadow:0 10px 30px rgba(0,0,0,.25);">
+            <div id="modalTitle" style="font-weight:600;font-size:14px;margin-bottom:8px"></div>
+            <div id="modalMsg" style="font-size:13px;color:#444;margin-bottom:12px;line-height:1.45;word-break:break-word"></div>
+            <input id="modalInput" type="text"
+                   style="width:100%;display:none;margin-bottom:12px;padding:8px 10px;font-size:14px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" />
+            <div style="display:flex;gap:8px">
+                <button id="modalOk" class="primary" style="margin:0;flex:1">אישור</button>
+                <button id="modalCancel" style="margin:0">ביטול</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         Settings panel (overlay) - tabbed
+         ============================================================ -->
+    <div id="settingsPanel">
+        <div class="cp-header">
+            <button id="spCloseBtn" title="חזרה" type="button">←</button>
+            <strong>הגדרות</strong>
+        </div>
+
+        <div class="sp-tabs">
+            <button class="sp-tab-btn active" data-sp-tab="spStampTab">סימון מצב</button>
+            <button class="sp-tab-btn" data-sp-tab="spFolderTab">שם תיקיה</button>
+            <button class="sp-tab-btn" data-sp-tab="spDispatchTab">הפצה</button>
+            <button class="sp-tab-btn" data-sp-tab="spCategoryTab">קטגוריות</button>
+        </div>
+
+        <div class="sp-body">
+            <!-- Stamp tab -->
+            <div id="spStampTab" class="sp-tab-panel active">
+                <div class="sp-section">
+                    <h3>חותמת ב‑PDF</h3>
+                    <div class="sp-hint">החותמת נוספת בראש קובץ ה‑PDF השמור עם פרטי הפרויקט.</div>
+                    <label>
+                        <input type="checkbox" id="spDefaultStamp" />
+                        הוסף חותמת כברירת מחדל
+                    </label>
+
+                    <div style="margin-top:10px;font-size:12px;color:var(--muted)">שדות לכלול בחותמת:</div>
+                    <label><input type="checkbox" id="spFieldProjectId" /> מספר פרויקט</label>
+                    <label><input type="checkbox" id="spFieldProjectName" /> שם הפרויקט</label>
+                    <label><input type="checkbox" id="spFieldLeader" /> מנהל פרויקט</label>
+                    <label><input type="checkbox" id="spFieldDate" /> תאריך שמירה</label>
+                    <label><input type="checkbox" id="spFieldUser" /> שם המשתמש השומר</label>
+                    <label><input type="checkbox" id="spFieldEmployees" /> רשימת עובדי הפרויקט</label>
+                    <label><input type="checkbox" id="spFieldAttachments" /> רשימת קבצים מצורפים</label>
+
+                    <label style="margin-top:10px">הערה נוספת (אופציונלית):</label>
+                    <input id="spStampNotes" type="text" placeholder="טקסט חופשי שיתווסף לחותמת" />
+
+                    <details>
+                        <summary>תבנית מתקדמת (HTML) ▾</summary>
+                        <div class="sp-hint">תבנית זו תחליף את מבנה השדות לעיל. ניתן להשתמש ב‑placeholders: <code>{{projectId}}</code>, <code>{{projectName}}</code>, <code>{{leader}}</code>, <code>{{date}}</code>, <code>{{user}}</code>, <code>{{employees}}</code>, <code>{{attachments}}</code>, <code>{{notes}}</code></div>
+                        <textarea id="spStampTemplate" placeholder="<div>{{projectId}} - {{projectName}}</div>" rows="4"></textarea>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Folder naming tab -->
+            <div id="spFolderTab" class="sp-tab-panel">
+                <div class="sp-section">
+                    <h3>תיקיית יעד ברירת מחדל</h3>
+                    <div class="sp-hint">בחר/י תיקיה לשמירה אוטומטית תחת תיקיית הפרויקט. התיקיה תיווצר בעת השמירה אם אינה קיימת. בחירה ידנית בעץ התיקיות גוברת על ברירת המחדל.</div>
+
+                    <div id="spSubfolderList" class="sf-list">
+                        <div class="sf-empty">אין תיקיות ברירת מחדל</div>
+                    </div>
+
+                    <div class="sf-input-row">
+                        <input id="spSubfolderInput" type="text" placeholder="שם תיקיה (לדוגמה: מכתבים)" />
+                        <button type="button" id="spSubfolderAdd">+ הוסף</button>
+                    </div>
+
+                    <div class="sf-actions">
+                        <button type="button" id="spSubfolderRename">✎ שנה שם</button>
+                        <button type="button" id="spSubfolderDelete">🗑 הסר</button>
+                        <button type="button" id="spSubfolderClear">בטל ברירת מחדל</button>
+                    </div>
+
+                    <label style="margin-top:12px">
+                        <input type="checkbox" id="spSubfolderAppendDate" />
+                        הוסף את תאריך היום כתת-תיקיה (לדוגמה: <code>מכתבים/02.05.2026</code>)
+                    </label>
+                </div>
+
+                <div class="sp-section">
+                    <h3>שם תיקיה חדשה</h3>
+                    <div class="sp-hint">השם המוצע בעת יצירת תיקיה חדשה בעץ התיקיות (ימולא מראש בתיבת הקלט).</div>
+                    <label><input type="radio" name="spFolderNaming" value="default" /> "New Folder"</label>
+                    <label><input type="radio" name="spFolderNaming" value="date" /> תאריך של היום (DD.MM.YYYY)</label>
+                    <label><input type="radio" name="spFolderNaming" value="custom" /> טקסט מותאם + תאריך:</label>
+                    <input id="spCustomPrefix" type="text" placeholder="לדוגמה: הצעת מחיר" />
+                </div>
+            </div>
+
+            <!-- Dispatch tab -->
+            <div id="spDispatchTab" class="sp-tab-panel">
+                <div class="sp-section">
+                    <h3>תחנת הפצה</h3>
+                    <div class="sp-hint">בעת הפעלה תופיע תיבת סימון "העבר למנהל פרויקט" באזור הראשי. בעת השמירה ייפתח חלון הודעה חדש למנהל הפרויקט עם תוכן ההודעה המקורית.</div>
+                    <label><input type="checkbox" id="spDispatchMode" /> הפעל מצב תחנת הפצה</label>
+                    <label id="spForwardDefaultRow" style="display:none">
+                        <input type="checkbox" id="spForwardDefault" />
+                        סמן "העבר למנהל פרויקט" כברירת מחדל בכל שמירה
+                    </label>
+                </div>
+            </div>
+
+            <!-- Categories tab -->
+            <div id="spCategoryTab" class="sp-tab-panel">
+                <div class="sp-section">
+                    <h3>שיוך קטגוריה</h3>
+                    <label>
+                        <input type="checkbox" id="spDefaultCategory" />
+                        סמן בקטגוריה כברירת מחדל
+                    </label>
+
+                    <div style="margin-top:12px;font-size:12px;color:var(--muted)">קטגוריה לסימון:</div>
+                    <div id="spCategoryList" class="cat-list">
+                        <div class="cat-empty">טוען רשימת קטגוריות...</div>
+                    </div>
+                    <button type="button" id="spNewCatBtn" style="margin-top:10px">+ צור קטגוריה חדשה</button>
+
+                    <div id="spNewCatForm" class="new-cat-form" style="display:none">
+                        <label>שם הקטגוריה:</label>
+                        <input id="spNewCatName" type="text" placeholder="שם קטגוריה חדשה" />
+                        <label style="margin-top:10px">צבע:</label>
+                        <div id="spSwatchGrid" class="swatch-grid"></div>
+                        <div style="display:flex;gap:8px;margin-top:10px">
+                            <button type="button" id="spNewCatCreate" class="primary" style="flex:1;margin:0">צור</button>
+                            <button type="button" id="spNewCatCancel" style="margin:0">ביטול</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sp-footer">
+            <button type="button" id="spSaveBtn" class="primary" style="flex:1">שמור</button>
+            <button type="button" id="spCancelBtn">ביטול</button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         Inline contact picker panel (Outlook-style sidebar layout)
+         ============================================================ -->
+    <div id="contactPickerPanel">
+        <div class="cp-header">
+            <button id="cpCloseBtn" title="חזרה">←</button>
+            <strong id="cpTitle"></strong>
+        </div>
+
+        <div class="cp-search">
+            <button id="cpClearSearch" title="נקה">✕</button>
+            <input id="cpSearch" type="text" placeholder="חיפוש לפי שם או אימייל..." />
+        </div>
+
+        <div class="cp-main">
+            <div id="cpFolderTree" class="cp-sidebar"></div>
+            <div id="cpList" class="cp-list"></div>
+        </div>
+
+        <div class="cp-footer">
+            <button id="cpSelectBtn" class="primary" disabled>בחר</button>
+            <button id="cpCancelBtn" class="secondary">ביטול</button>
+        </div>
+    </div>
+
+    <!-- Forward-to-leader (only visible when dispatch mode is enabled in settings) -->
+    <label id="forwardToLeaderRow" style="display:none;margin-top:14px;font-weight:600;font-size:13px">
+        <input type="checkbox" id="optForwardToLeader" style="margin-left:6px" />
+        העבר למנהל פרויקט
+    </label>
+
+    <!-- Action button -->
+    <button id="saveBtn">
+        שמור כ‑PDF
+    </button>
+
+    <!-- Status area -->
+    <div id="status"></div>
+
+    <!-- Always-visible credit footer -->
+    <div class="credit-footer">
+        <b>SaveAsPDF</b> &copy; v<span id="appVersion">…</span> <br>by Ofer Aharon &lt;<a href="mailto:ofer@sw-eng.co.il">ofer@sw-eng.co.il</a>&gt;
+    </div>
+
+</body>
+</html>
