@@ -2,6 +2,8 @@
 
 // Build-time injected version (from package.json via webpack DefinePlugin)
 const APP_VERSION = (typeof __APP_VERSION__ !== "undefined") ? __APP_VERSION__ : "0.0.0";
+// Live version fetched from /api/info — single source of truth; updated on load
+let _liveVersion = APP_VERSION;
 
 // HTML-escape user-supplied data before interpolating into innerHTML.
 // All contact names/emails, attachment names, error messages from the backend,
@@ -21,12 +23,19 @@ function escHtml(s) {
 Office.onReady(() => {
     console.log("SaveAsPDF taskpane loaded — v" + APP_VERSION);
 
-    // Credit footer version badge
+    // Credit footer version badge — seed with bundle version, then update from /api/info
     const versionEl = document.getElementById("appVersion");
-    if (versionEl) versionEl.textContent = APP_VERSION;
+    if (versionEl) {
+        versionEl.textContent = APP_VERSION;
+        fetch(`${BACKEND_BASE}/api/info`)
+            .then(r => r.json())
+            .then(j => { if (j.version) { versionEl.textContent = j.version; _liveVersion = j.version; } })
+            .catch(() => {});
+    }
 
     document.getElementById("saveBtn").onclick      = onSaveAsPdf;
     document.getElementById("pickLeaderBtn").onclick = () => openContactPicker("leader");
+    document.getElementById("bugReportBtn").onclick  = onBugReport;
 
     // Settings panel
     document.getElementById("openSettingsBtn").onclick = openSettingsPanel;
@@ -45,7 +54,7 @@ Office.onReady(() => {
     document.getElementById("spCloseBtn").onclick      = closeSettingsPanel;
     document.getElementById("spCancelBtn").onclick     = closeSettingsPanel;
     document.getElementById("spSaveBtn").onclick       = saveSettingsPanel;
-    document.getElementById("spNewCatBtn").onclick     = showNewCategoryForm;
+    document.getElementById("spNewCatBtn").onclick      = showNewCategoryForm;
     document.getElementById("spNewCatCancel").onclick  = hideNewCategoryForm;
     document.getElementById("spNewCatCreate").onclick  = createNewCategory;
     document.getElementById("spDispatchMode").onchange = (e) => {
@@ -83,6 +92,7 @@ Office.onReady(() => {
     initializeEmployeesTab();
     loadAttachments();
     tryRestoreProjectInfo();
+    applyAddSelf();          // auto-add logged-in user if setting is on
     preloadContacts(); // background – feeds autocomplete & speeds up picker
 
     loadPrefs();
@@ -91,6 +101,7 @@ Office.onReady(() => {
     updateDestBanner();
 
     fetchAdminPolicy();         // populates _adminPolicy, then re-applies prefs
+    checkAdminAccess();         // shows admin link if user is in the admin AD group
     startBackendHealthCheck();
 });
 
@@ -158,19 +169,30 @@ function setupProjectIdLookup() {
         clearTimeout(_projectLookupTimer);
         loadProjectByNumber();
     });
+    input.addEventListener("keydown", async (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        clearTimeout(_projectLookupTimer);
+        const exists = await loadProjectByNumber();
+        if (!exists) {
+            document.getElementById("projectName").focus();
+            document.getElementById("projectName").select();
+        }
+    });
 }
 
+// Returns true if the project exists, false if not found, undefined on error.
 async function loadProjectByNumber() {
     const num = document.getElementById("projectId").value.trim();
     const status = document.getElementById("status");
-    if (!num) return;
+    if (!num) return undefined;
 
     try {
         const res = await fetch(`${BACKEND_BASE}/api/project/${encodeURIComponent(num)}`);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             status.innerText = err.error || `שגיאת שרת ${res.status}`;
-            return;
+            return undefined;
         }
         const data = await res.json();
 
@@ -194,7 +216,7 @@ async function loadProjectByNumber() {
                     if (!cr.ok) {
                         const e = await cr.json().catch(() => ({}));
                         await dlgAlert("שגיאה ביצירת פרויקט", e.error || ("HTTP " + cr.status));
-                        return;
+                        return false;
                     }
                     const created = await cr.json();
                     status.innerText = `הפרויקט נוצר בנתיב: ${created.folderPath}`;
@@ -204,7 +226,7 @@ async function loadProjectByNumber() {
                     await dlgAlert("שגיאה ביצירת פרויקט", e.message);
                 }
             }
-            return;
+            return false;
         }
 
         status.innerText = "";
@@ -219,21 +241,26 @@ async function loadProjectByNumber() {
         if (Array.isArray(data.employees) && data.employees.length > 0) {
             _employees.length = 0;
             data.employees.forEach(e => _employees.push({
-                displayName: e.displayName,
+                displayName: e.displayName || enrichDisplayName(e.email),
                 email: e.email,
                 isLeader: !!e.isLeader
             }));
 
-            const leader = data.employees.find(e => e.isLeader);
+            const leader = _employees.find(e => e.isLeader);
             if (leader) {
                 const lin = document.getElementById("projectLeader");
-                lin.value = `${leader.displayName}  <${leader.email}>`;
+                lin.value = leader.displayName
+                    ? `${leader.displayName}  <${leader.email}>`
+                    : leader.email;
                 lin.dataset.email = leader.email;
             }
             renderEmployees();
         }
+        applyAddSelf();
+        return true;
     } catch (e) {
         console.warn("Project lookup failed:", e);
+        return undefined;
     }
 }
 
@@ -258,6 +285,14 @@ async function preloadContacts() {
 // =====================================================================
 // Project leader field
 // =====================================================================
+
+// Look up a display name from the preloaded contacts cache by email.
+// Returns the name string, or "" if not found / contacts not yet loaded.
+function enrichDisplayName(email) {
+    if (!email) return "";
+    return _allContacts.find(c => c.email === email)?.displayName || "";
+}
+
 function setProjectLeader(contact) {
     const input = document.getElementById("projectLeader");
     input.value = `${contact.displayName}  <${contact.email}>`;
@@ -319,6 +354,22 @@ function hideLeaderDropdown() {
 // =====================================================================
 // Attachment list
 // =====================================================================
+// Returns the active sig-image threshold in bytes.
+// Admin policy overrides the user pref when set (non-null).
+function effectiveSigImgThreshold() {
+    const forced = _adminAttachmentPolicy?.sigImgThreshold;
+    if (forced !== null && forced !== undefined) return forced;
+    return _prefs.sigImgThreshold ?? 8192;
+}
+
+function isSigImage(att) {
+    const t = effectiveSigImgThreshold();
+    if (t <= 0) return false;
+    const isImg = /^image\//i.test(att.contentType || '') ||
+                  /\.(png|jpe?g|gif|bmp|ico|tiff?|webp|svg)$/i.test(att.name || '');
+    return isImg && att.size > 0 && att.size <= t;
+}
+
 function loadAttachments() {
     const item      = Office.context.mailbox.item;
     const container = document.getElementById("attachmentsTab");
@@ -328,12 +379,31 @@ function loadAttachments() {
         return;
     }
 
-    container.innerHTML = item.attachments.map(att => `
+    // Inline attachments (cid: body embeds) are not saved separately
+    const nonInline = item.attachments.filter(a => !a.isInline);
+    const visible   = nonInline.filter(a => !isSigImage(a));
+    const hidden    = nonInline.filter(a =>  isSigImage(a));
+
+    if (visible.length === 0 && hidden.length === 0) {
+        container.innerHTML = "<p>אין קבצים מצורפים</p>";
+        return;
+    }
+
+    let html = visible.map(att => `
         <label style="display:flex;align-items:center;gap:8px;margin-top:8px">
             <input type="checkbox" class="att-check" data-id="${escHtml(att.id)}" checked />
             <span>${escHtml(att.name)} <span style="color:#888;font-size:12px">(${escHtml(formatSize(att.size))})</span></span>
         </label>
     `).join("");
+
+    if (hidden.length > 0) {
+        const kb = Math.round(effectiveSigImgThreshold() / 1024);
+        html += `<div style="color:#aaa;font-size:11px;margin-top:6px">
+            (${hidden.length} תמונת חתימה הוסתרה — מתחת ל-${kb} KB)
+        </div>`;
+    }
+
+    container.innerHTML = html;
 }
 
 function formatSize(bytes) {
@@ -414,6 +484,8 @@ const DEFAULT_PREFS = {
     folderNaming:    { mode: "default", customPrefix: "" },   // default | date | custom
     dispatchMode:    false,                                    // enables forward-to-leader feature
     forwardToLeaderByDefault: false,                           // pre-checks the forward checkbox each time
+    addSelfAsEmployee: false,                                  // auto-add current Outlook user to employees
+    sigImgThreshold:   8192,                                   // hide image attachments ≤ this size (bytes); 0 = off
     defaultSubfolders: {
         list:       ["מכתבים", "התקבל", "אישור ציוד"],
         selected:   "",      // "" = no default sub-folder
@@ -450,11 +522,11 @@ function savePrefs() {
     } catch (e) { console.warn("savePrefs failed", e); }
 }
 
-// ---------- Admin policy (server-enforced stamp overrides) ----------
-// Map of admin-forced stamp fields. Shape:
-//   { defaultStamp: bool|null, includeProjectId: bool|null, ... }
-// null/undefined = user controls; true/false = forced value.
+// ---------- Admin policy (server-enforced overrides) ----------
+// Stamp policy: { defaultStamp: bool|null, ... }
 let _adminPolicy = {};
+// Attachment policy: { sigImgThreshold: number|null }  null = user controls
+let _adminAttachmentPolicy = {};
 
 // Mapping from policy key -> taskpane checkbox id (used to lock the UI).
 const POLICY_FIELD_MAP = {
@@ -468,6 +540,17 @@ const POLICY_FIELD_MAP = {
     includeAttachments:  "spFieldAttachments"
 };
 
+async function checkAdminAccess() {
+    try {
+        const email = Office.context.mailbox?.userProfile?.emailAddress;
+        if (!email) return;
+        const res = await fetch(`${BACKEND_BASE}/api/policy/is-admin?email=${encodeURIComponent(email)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.isAdmin) document.getElementById("adminLink").style.display = "";
+    } catch { /* AD unavailable or non-domain machine — admin link stays hidden */ }
+}
+
 async function fetchAdminPolicy() {
     try {
         const ctrl = new AbortController();
@@ -476,8 +559,10 @@ async function fetchAdminPolicy() {
         clearTimeout(t);
         if (!res.ok) return;
         const body = await res.json();
-        _adminPolicy = body.stamp || {};
-        applyPrefsToCheckboxes();   // re-apply so the master "stamp" toggle reflects the policy
+        _adminPolicy           = body.stamp      || {};
+        _adminAttachmentPolicy = body.attachment || {};
+        applyPrefsToCheckboxes();
+        loadAttachments(); // re-filter with the now-known admin threshold
     } catch { /* backend may be down — fall back to user prefs only */ }
 }
 
@@ -523,6 +608,31 @@ function applyPolicyLocks() {
         if (forced === null) unlockField(id);
         else                 lockField(id, forced);
     });
+
+    // Signature-image threshold lock
+    const forcedThresh = _adminAttachmentPolicy?.sigImgThreshold;
+    const cbSig  = document.getElementById("spHideSigImages");
+    const inpKb  = document.getElementById("spSigImgThresholdKb");
+    const rowSig = document.getElementById("spSigThresholdRow");
+    if (forcedThresh !== null && forcedThresh !== undefined) {
+        cbSig.checked  = forcedThresh > 0;
+        cbSig.disabled = true;
+        inpKb.value    = forcedThresh > 0 ? Math.round(forcedThresh / 1024) : 8;
+        inpKb.disabled = true;
+        if (rowSig) rowSig.style.display = forcedThresh > 0 ? "flex" : "none";
+        if (!cbSig.closest("label")?.querySelector(".policy-lock")) {
+            const tag = document.createElement("span");
+            tag.className = "policy-lock";
+            tag.textContent = " 🔒";
+            tag.title = "ההגדרה נקבעה על-ידי מנהל המערכת";
+            tag.style.cssText = "color:#888;font-size:11px;margin-right:4px";
+            cbSig.closest("label")?.appendChild(tag);
+        }
+    } else {
+        cbSig.disabled = false;
+        inpKb.disabled = false;
+        cbSig.closest("label")?.querySelectorAll(".policy-lock").forEach(n => n.remove());
+    }
 }
 
 function applyPrefsToCheckboxes() {
@@ -532,7 +642,9 @@ function applyPrefsToCheckboxes() {
     optStamp.disabled = forcedStamp !== null;
     optStamp.title = forcedStamp !== null ? "🔒 ההגדרה נקבעה על-ידי מנהל המערכת" : "";
 
-    document.getElementById("optCategory").checked = !!_prefs.defaultCategory;
+    const catCb = document.getElementById("optCategory");
+    catCb.checked = !!_prefs.defaultCategory;
+    document.getElementById("categoryRow").style.display = _prefs.defaultCategory ? "" : "none";
 
     // Dispatch / forward-to-leader visibility + default state
     const row = document.getElementById("forwardToLeaderRow");
@@ -583,10 +695,17 @@ function openSettingsPanel() {
     document.getElementById("spCustomPrefix").value = _prefs.folderNaming?.customPrefix || "";
 
     // Dispatch
-    document.getElementById("spDispatchMode").checked = !!_prefs.dispatchMode;
-    document.getElementById("spForwardDefault").checked = !!_prefs.forwardToLeaderByDefault;
+    document.getElementById("spDispatchMode").checked        = !!_prefs.dispatchMode;
+    document.getElementById("spForwardDefault").checked      = !!_prefs.forwardToLeaderByDefault;
+    document.getElementById("spAddSelfAsEmployee").checked   = !!_prefs.addSelfAsEmployee;
     document.getElementById("spForwardDefaultRow").style.display =
         _prefs.dispatchMode ? "block" : "none";
+
+    // Signature-image filter
+    const thresh = _prefs.sigImgThreshold ?? 8192;
+    document.getElementById("spHideSigImages").checked = thresh > 0;
+    document.getElementById("spSigImgThresholdKb").value = thresh > 0 ? Math.round(thresh / 1024) : 8;
+    document.getElementById("spSigThresholdRow").style.display = thresh > 0 ? "flex" : "none";
 
     // Default sub-folder destination (tentative copies edited until Save)
     _spSubfolderList     = [...(_prefs.defaultSubfolders?.list || [])];
@@ -638,6 +757,11 @@ function saveSettingsPanel() {
 
     _prefs.dispatchMode             = document.getElementById("spDispatchMode").checked;
     _prefs.forwardToLeaderByDefault = document.getElementById("spForwardDefault").checked;
+    _prefs.addSelfAsEmployee        = document.getElementById("spAddSelfAsEmployee").checked;
+
+    const hideSig  = document.getElementById("spHideSigImages").checked;
+    const threshKb = parseInt(document.getElementById("spSigImgThresholdKb").value, 10) || 8;
+    _prefs.sigImgThreshold = hideSig ? threshKb * 1024 : 0;
 
     _prefs.defaultSubfolders = {
         list:       _spSubfolderList.slice(),
@@ -778,7 +902,6 @@ function renderCategoryList() {
 
     let cats = [..._spLoadedCategories];
 
-    // Always include the currently chosen category, even if not in master list yet
     if (_spSelectedCategory && !cats.some(c => c.displayName === _spSelectedCategory)) {
         cats.unshift({ displayName: _spSelectedCategory, color: null, _autoCreate: true });
     }
@@ -788,19 +911,22 @@ function renderCategoryList() {
         return;
     }
 
+    const canManage = !!Office.context.mailbox.masterCategories?.removeAsync;
+
     cats.forEach(cat => {
         const row = document.createElement("div");
         row.className = "cat-row" + (cat.displayName === _spSelectedCategory ? " selected" : "");
+        row.style.cssText = "display:flex;align-items:center;gap:4px;padding:5px 8px;cursor:pointer";
 
-        const swatch  = document.createElement("span");
+        const swatch = document.createElement("span");
         swatch.className = "cat-swatch";
         const palette = CATEGORY_PALETTE.find(p => p.name === cat.color);
         swatch.style.background = palette ? palette.hex : "#ccc";
-        if (!palette) swatch.title = "אין צבע מוגדר";
         row.appendChild(swatch);
 
         const name = document.createElement("span");
-        name.className   = "cat-name";
+        name.className = "cat-name";
+        name.style.flex = "1";
         name.textContent = cat.displayName + (cat._autoCreate ? "  (יווצר אוטומטית)" : "");
         row.appendChild(name);
 
@@ -811,13 +937,57 @@ function renderCategoryList() {
             row.appendChild(check);
         }
 
-        row.onclick = () => {
-            _spSelectedCategory = cat.displayName;
-            renderCategoryList();
-        };
+        // Inline management buttons (only for real categories, not auto-create placeholders)
+        if (canManage && !cat._autoCreate) {
+            const btnRename = document.createElement("button");
+            btnRename.textContent = "✎";
+            btnRename.title = "שנה שם";
+            btnRename.style.cssText = "padding:1px 5px;font-size:11px;border:1px solid #ccc;border-radius:3px;background:#fff;cursor:pointer;flex-shrink:0";
+            row.appendChild(btnRename);
+
+            const btnDel = document.createElement("button");
+            btnDel.textContent = "🗑";
+            btnDel.title = "מחק";
+            btnDel.style.cssText = "padding:1px 5px;font-size:11px;border:1px solid #fca5a5;border-radius:3px;background:#fff;cursor:pointer;color:#b91c1c;flex-shrink:0";
+            row.appendChild(btnDel);
+
+            btnRename.onclick = (e) => { e.stopPropagation(); startInlineRename(cat); };
+            btnDel.onclick    = (e) => { e.stopPropagation(); deleteMasterCategory(cat.displayName); };
+        }
+
+        row.onclick = () => { _spSelectedCategory = cat.displayName; renderCategoryList(); };
         container.appendChild(row);
     });
 }
+
+function deleteMasterCategory(name) {
+    dlgConfirm("מחיקת קטגוריה", `למחוק את "${name}"?`, "מחק", "ביטול").then(ok => {
+        if (!ok) return;
+        Office.context.mailbox.masterCategories.removeAsync([name], r => {
+            if (r.status !== Office.AsyncResultStatus.Succeeded) {
+                dlgAlert("שגיאה במחיקה", r.error?.message || "מחיקה נכשלה"); return;
+            }
+            _spLoadedCategories = _spLoadedCategories.filter(c => c.displayName !== name);
+            if (_spSelectedCategory === name)
+                _spSelectedCategory = _spLoadedCategories[0]?.displayName || "";
+            renderCategoryList();
+        });
+    });
+}
+
+function startInlineRename(cat) {
+    // Populate the new-category form pre-filled for rename
+    _editingCategoryOldName = cat.displayName;
+    document.getElementById("spNewCatName").value = cat.displayName;
+    _selectedSwatch = cat.color || "Preset7";
+    document.getElementById("spNewCatForm").style.display = "block";
+    document.getElementById("spNewCatCreate").textContent = "שמור שם";
+    renderSwatches();
+    document.getElementById("spNewCatName").focus();
+    document.getElementById("spNewCatName").select();
+}
+
+let _editingCategoryOldName = null; // non-null = rename mode
 
 // When masterCategories API is denied, swap the list for a free-text input.
 // On save the tag is applied via item.categories.addAsync; Outlook auto-creates
@@ -885,14 +1055,19 @@ const CATEGORY_PALETTE = [
 let _selectedSwatch = "Preset7"; // default to blue
 
 function showNewCategoryForm() {
+    _editingCategoryOldName = null;
     document.getElementById("spNewCatForm").style.display = "block";
+    document.getElementById("spNewCatCreate").textContent = "צור";
     document.getElementById("spNewCatName").value = "";
     _selectedSwatch = "Preset7";
     renderSwatches();
+    document.getElementById("spNewCatName").focus();
 }
 
 function hideNewCategoryForm() {
     document.getElementById("spNewCatForm").style.display = "none";
+    document.getElementById("spNewCatCreate").textContent = "צור";
+    _editingCategoryOldName = null;
 }
 
 function renderSwatches() {
@@ -910,14 +1085,19 @@ function renderSwatches() {
 
 function createNewCategory() {
     const name = document.getElementById("spNewCatName").value.trim();
-    if (!name) { alert("יש להזין שם קטגוריה"); return; }
+    if (!name) { dlgAlert("שגיאה", "יש להזין שם קטגוריה"); return; }
 
     if (!Office.context.mailbox.masterCategories?.addAsync) {
-        alert("יצירת קטגוריות דורשת Outlook 2019 ומעלה (Mailbox 1.8+)");
+        dlgAlert("לא זמין", "יצירת קטגוריות דורשת Outlook 2019 ומעלה (Mailbox 1.8+)");
         return;
     }
 
-    try {
+    const isRename = !!_editingCategoryOldName && _editingCategoryOldName !== name;
+    const oldName  = _editingCategoryOldName;
+    _editingCategoryOldName = null;
+    document.getElementById("spNewCatCreate").textContent = "צור";
+
+    const doAdd = () => {
         Office.context.mailbox.masterCategories.addAsync(
             [{ displayName: name, color: Office.MailboxEnums.CategoryColor[_selectedSwatch] }],
             r => {
@@ -930,19 +1110,20 @@ function createNewCategory() {
                     showCategoryFallback();
                     return;
                 }
-                // Optimistically add to the cached list so the user sees it immediately
+                if (isRename) _spLoadedCategories = _spLoadedCategories.filter(c => c.displayName !== oldName);
                 _spLoadedCategories.push({ displayName: name, color: _selectedSwatch });
                 _spSelectedCategory = name;
                 hideNewCategoryForm();
                 renderCategoryList();
             }
         );
-    } catch (e) {
-        dlgAlert("יצירת קטגוריה אינה זמינה",
-            e.message + "\n\nניתן להזין שם קטגוריה ידנית — Outlook ייצור אותה אוטומטית.");
-        _spSelectedCategory = name;
-        hideNewCategoryForm();
-        showCategoryFallback();
+    };
+
+    if (isRename && oldName) {
+        // Rename = delete old + add new
+        Office.context.mailbox.masterCategories.removeAsync([oldName], () => doAdd());
+    } else {
+        doAdd();
     }
 }
 
@@ -997,6 +1178,7 @@ const dlgAlert   = (title, message)               => dlg({ title, message, hideC
 // Project folder tree (in the third tab)
 // =====================================================================
 let _folderTree         = null;   // root node from backend
+let _folderRootPath     = "";     // absolute server path of the project root
 let _selectedFolderPath = "";     // empty = project root
 let _expandedPaths      = new Set([""]);     // root always expanded
 let _treeProjectNumber  = "";     // project the tree was loaded for
@@ -1019,7 +1201,8 @@ async function loadFolderTree(projectNumber) {
             return;
         }
         const body = await res.json();
-        _folderTree = body.tree;
+        _folderTree     = body.tree;
+        _folderRootPath = body.rootPath || "";
         _selectedFolderPath = ""; // reset to project root on every load
         renderFolderTree();
         updateDestBanner();
@@ -1144,7 +1327,8 @@ function setupFolderContextMenu() {
             const node = _ctxNode;
             hideFolderContextMenu();
             if (!node) return;
-            if (action === "create") doCreateFolder(node);
+            if (action === "open")    doOpenFolder(node);
+            else if (action === "create") doCreateFolder(node);
             else if (action === "rename") doRenameFolder(node);
             else if (action === "delete") doDeleteFolder(node);
             else if (action === "refresh") loadFolderTree(_treeProjectNumber);
@@ -1155,6 +1339,19 @@ function setupFolderContextMenu() {
         if (!e.target.closest(".folder-row") && !e.target.closest("#folderCtxMenu"))
             hideFolderContextMenu();
     });
+}
+
+// ---------- Open folder in Windows Explorer ----------
+function doOpenFolder(node) {
+    if (!_folderRootPath) return;
+    const rel  = node.path ? node.path.replace(/\//g, "\\") : "";
+    const full = rel ? _folderRootPath.replace(/[\\\/]+$/, "") + "\\" + rel : _folderRootPath;
+    // Ask the backend to open explorer.exe — window.open(file://) is blocked in Outlook's WebView
+    fetch(`${BACKEND_BASE}/api/open-folder`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ path: full })
+    }).catch(e => console.warn("[SaveAsPDF] open-folder failed:", e));
 }
 
 // ---------- Folder name suggestion (per settings) ----------
@@ -1189,7 +1386,13 @@ async function doCreateFolder(parentNode) {
             return;
         }
         _expandedPaths.add(parentNode.path);
+        // Compute new path before tree reload (loadFolderTree resets _selectedFolderPath)
+        const newFolderPath = parentNode.path ? `${parentNode.path}/${r.value}` : r.value;
         await loadFolderTree(_treeProjectNumber);
+        // Auto-select the newly created folder as the save destination
+        _selectedFolderPath = newFolderPath;
+        renderFolderTree();
+        updateDestBanner();
     } catch (e) {
         await dlgAlert("שגיאה", e.message);
     }
@@ -1509,16 +1712,37 @@ async function onSaveAsPdf() {
         if (fwdCb && !_prefs.forwardToLeaderByDefault) fwdCb.checked = false;
 
         const savedName = result?.pdf?.fileName || "";
-        if (warnings.length === 0) {
-            status.innerText = savedName
-                ? `נשמר ✅ ${savedName}`
-                : "ההודעה נשמרה בהצלחה ✅";
-        } else {
-            status.innerText = savedName
-                ? `נשמר ✅ ${savedName} (עם אזהרות)`
-                : "ההודעה נשמרה ✅ (עם אזהרות)";
+        const saveDir   = result?.project?.saveDir || result?.project?.fullName || "";
+
+        if (warnings.length > 0) {
             await dlgAlert("ההודעה נשמרה — חלק מהפעולות לא בוצעו",
                 warnings.map(w => "• " + w).join("\n"));
+        }
+
+        // Build status line: text + open-folder button
+        status.innerHTML = "";
+        status.appendChild(document.createTextNode(
+            savedName
+                ? `נשמר ✅ ${savedName}${warnings.length > 0 ? " (עם אזהרות)" : ""}`
+                : `ההודעה נשמרה בהצלחה ✅${warnings.length > 0 ? " (עם אזהרות)" : ""}`
+        ));
+
+        if (saveDir) {
+            const openBtn = document.createElement("button");
+            openBtn.type      = "button";
+            openBtn.title     = saveDir;
+            openBtn.textContent = "📂";
+            openBtn.style.cssText =
+                "margin-right:8px;margin-top:0;padding:2px 7px;font-size:13px;" +
+                "border-radius:4px;cursor:pointer;vertical-align:middle";
+            openBtn.onclick = () => {
+                const slash = saveDir.replace(/\\/g, "/");
+                const url   = slash.startsWith("//")
+                    ? "file:" + slash        // UNC  \\server\share → file://server/share
+                    : "file:///" + slash;    // local C:\... → file:///C:/...
+                window.open(url, "_blank", "noopener");
+            };
+            status.appendChild(openBtn);
         }
     } catch (err) {
         console.error(err);
@@ -1538,10 +1762,40 @@ function validateMarkingOptions() {
 async function collectMailData() {
     const item = Office.context.mailbox.item;
 
-    const bodyHtml = await new Promise((resolve, reject) =>
+    let bodyHtml = await new Promise((resolve, reject) =>
         item.body.getAsync(Office.CoercionType.Html,
             r => r.status === Office.AsyncResultStatus.Succeeded ? resolve(r.value) : reject(r.error))
     );
+
+    // Resolve cid: inline image references to base64 data URIs so iText7 can render them.
+    // Desktop Outlook returns inline images as cid: refs; OWA may already return data URIs.
+    if (bodyHtml.includes('cid:')) {
+        const inlineAtts = (item.attachments || []).filter(a => a.isInline);
+        const cidMap = new Map();
+        for (const att of inlineAtts) {
+            try {
+                const result = await new Promise((res, rej) =>
+                    item.getAttachmentContentAsync(att.id,
+                        r => r.status === Office.AsyncResultStatus.Succeeded ? res(r.value) : rej(r.error))
+                );
+                // Only embed Base64 format — skip URL-format attachments (OWA can return URLs)
+                if (result.format !== Office.MailboxEnums.AttachmentContentFormat.Base64) continue;
+                // Strip MIME line-breaks from base64 so the data URI is valid
+                const b64 = result.content.replace(/[\r\n]/g, '');
+                // cid: references use the filename (part before @) as the key
+                cidMap.set(att.name.toLowerCase(), `data:${att.contentType};base64,${b64}`);
+            } catch { /* skip — broken img placeholder beats a crash */ }
+        }
+        if (cidMap.size > 0) {
+            bodyHtml = bodyHtml.replace(
+                /src\s*=\s*["']cid:([^"'@]*)(?:@[^"']*)?["']/gi,
+                (match, name) => {
+                    const uri = cidMap.get(name.toLowerCase());
+                    return uri ? `src="${uri}"` : `src=""`;
+                }
+            );
+        }
+    }
 
     const checkedIds = new Set(
         [...document.querySelectorAll(".att-check:checked")].map(cb => cb.dataset.id)
@@ -1554,7 +1808,9 @@ async function collectMailData() {
             item.getAttachmentContentAsync(att.id,
                 r => r.status === Office.AsyncResultStatus.Succeeded ? resolve(r.value) : reject(r.error))
         );
-        attachments.push({ name: att.name, contentType: att.contentType, size: att.size, base64: content.content });
+        // Skip URL-format attachments (new Outlook / OWA returns a download URL, not base64)
+        if (content.format !== Office.MailboxEnums.AttachmentContentFormat.Base64) continue;
+        attachments.push({ name: att.name, contentType: att.contentType, size: att.size, base64: content.content.replace(/[\r\n\t ]/g, '') });
     }
 
     // All attachment names from the original message (independent of save selection),
@@ -1570,19 +1826,59 @@ async function collectMailData() {
     };
 }
 
-async function sendToBackend(payload) {
-    const res = await fetch(`${BACKEND_BASE}/api/saveaspdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+function sendToBackend(payload) {
+    return new Promise((resolve, reject) => {
+        const progressWrap  = document.getElementById("uploadProgress");
+        const progressBar   = document.getElementById("uploadProgressBar");
+        const progressLabel = document.getElementById("uploadProgressLabel");
+
+        const showProgress = (pct) => {
+            if (progressWrap)  progressWrap.style.display  = "block";
+            if (progressBar)   progressBar.style.width     = pct + "%";
+            if (progressLabel) progressLabel.textContent   = pct + "%";
+        };
+        const hideProgress = () => {
+            if (progressWrap) progressWrap.style.display = "none";
+        };
+
+        showProgress(0);
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                showProgress(Math.round(e.loaded / e.total * 100));
+            }
+        };
+
+        xhr.onload = () => {
+            showProgress(100);
+            hideProgress();
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try { resolve(JSON.parse(xhr.responseText)); }
+                catch { resolve({}); }
+            } else {
+                let detail = xhr.responseText;
+                try { detail = JSON.parse(xhr.responseText).error ||
+                               JSON.parse(xhr.responseText).title || detail; } catch {}
+                reject(new Error(`HTTP ${xhr.status}: ${detail || xhr.statusText}`));
+            }
+        };
+
+        xhr.onerror = () => {
+            hideProgress();
+            reject(new Error("שגיאת רשת — לא ניתן להגיע לשרת"));
+        };
+
+        xhr.ontimeout = () => {
+            hideProgress();
+            reject(new Error("הבקשה לשרת פגה בזמן"));
+        };
+
+        xhr.open("POST", `${BACKEND_BASE}/api/saveaspdf`);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify(payload));
     });
-    if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        let detail = text;
-        try { detail = JSON.parse(text).error || JSON.parse(text).title || text; } catch {}
-        throw new Error(`HTTP ${res.status}: ${detail || res.statusText}`);
-    }
-    return await res.json();
 }
 
 // =====================================================================
@@ -1798,10 +2094,67 @@ function tryRestoreProjectInfo() {
         if (name) document.getElementById("projectName").value = name;
         if (leader) {
             const input = document.getElementById("projectLeader");
-            input.value = leader;
-            input.dataset.email = stripEmail(leader);
+            const email = stripEmail(leader);
+            // leader may have been saved as bare email — enrich with display name if we can
+            const known = _allContacts.find(c => c.email === email);
+            input.value = (known?.displayName)
+                ? `${known.displayName}  <${email}>`
+                : leader;
+            input.dataset.email = email;
         }
     });
+}
+
+// =====================================================================
+// Bug report
+// =====================================================================
+function onBugReport() {
+    const version = _liveVersion;
+    const date    = new Date().toLocaleDateString("he-IL");
+    const body = `
+<div dir="rtl" style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.6">
+  <p>שלום עופר,</p>
+  <p>נתקלתי בתקלה בתוסף SaveAsPDF ואשמח לעזרה.</p>
+  <p><strong>תיאור קצר של התקלה:</strong><br>
+  [אנא החלף/י שורה זו בתיאור קצר של מה שקרה]</p>
+  <p><strong>צילום מסך:</strong><br>
+  [אנא צרף/י צילום מסך של הודעת השגיאה או ההתנהגות הלא-תקינה]</p>
+  <hr style="border:none;border-top:1px solid #ddd;margin:12px 0">
+  <p style="color:#888;font-size:12px">גרסה: ${escHtml(version)} &nbsp;|&nbsp; תאריך: ${escHtml(date)}</p>
+</div>`;
+
+    if (typeof Office?.context?.mailbox?.displayNewMessageForm === "function") {
+        try {
+            Office.context.mailbox.displayNewMessageForm({
+                toRecipients: ["ofer@sw-eng.co.il"],
+                subject:      "SaveAsPDF bug report",
+                htmlBody:     body
+            });
+        } catch (e) {
+            dlgAlert("דיווח על תקלה", "לא ניתן לפתוח חלון הודעה חדשה:\n" + e.message);
+        }
+    } else {
+        dlgAlert("דיווח על תקלה",
+            "פתיחת הודעה חדשה אינה נתמכת בסביבה זו.\n" +
+            "אנא שלח/י מייל ידנית אל ofer@sw-eng.co.il עם נושא: SaveAsPDF bug report");
+    }
+}
+
+// =====================================================================
+// Auto-add current Outlook user as project leader (if setting is on)
+// =====================================================================
+function applyAddSelf() {
+    if (!_prefs.addSelfAsEmployee) return;
+    try {
+        const up = Office.context.mailbox.userProfile;
+        const email = up?.emailAddress || "";
+        if (!email) return;
+        // Don't act if the user is already in the list or a leader is already set
+        if (_employees.some(e => e.email === email)) return;
+        const leaderInput = document.getElementById("projectLeader");
+        if (leaderInput.dataset.email || leaderInput.value.trim()) return;
+        setProjectLeader({ displayName: up.displayName || email, email });
+    } catch { }
 }
 
 // =====================================================================

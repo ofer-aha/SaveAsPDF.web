@@ -7,16 +7,21 @@ public static class AttachmentService
         if (attachments == null || attachments.Count == 0)
             return;
 
-        Directory.CreateDirectory(saveDir);
+        try { Directory.CreateDirectory(saveDir); } catch { return; }
 
         foreach (var att in attachments)
         {
             if (string.IsNullOrEmpty(att?.Name) || string.IsNullOrEmpty(att.Base64))
                 continue;
 
-            var filePath = ResolveUniquePath(saveDir, att.Name);
-            var bytes    = Convert.FromBase64String(att.Base64);
-            File.WriteAllBytes(filePath, bytes);
+            try
+            {
+                var clean = att.Base64.Replace("\r", "").Replace("\n", "").Replace("\t", "").Replace(" ", "");
+                var bytes = Convert.FromBase64String(clean);
+                var filePath = ResolveUniquePath(saveDir, att.Name);
+                File.WriteAllBytes(filePath, bytes);
+            }
+            catch { /* skip individual corrupt attachments — PDF save must not fail */ }
         }
     }
 

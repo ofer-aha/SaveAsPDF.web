@@ -2,13 +2,28 @@ public class AppSettings
 {
     public string ProjectsRoot { get; set; } = @"J:\";
 
+    // AD group whose members see the admin link in the taskpane header.
+    public string AdminGroup { get; set; } = "Domain Admins";
+
     // Admin-forced stamp settings. Each nullable bool: null = user controls,
     // true/false = forced value (taskpane locks the toggle, backend overrides on save).
     public StampPolicy StampPolicy { get; set; } = new();
 
+    // Admin-forced attachment settings.
+    public AttachmentPolicy AttachmentPolicy { get; set; } = new();
+
     // Admin login credentials. When null/empty PasswordHash, defaults to admin/admin
     // (the auth service falls back to this so first-time setup is possible).
     public AdminCredentials? Admin { get; set; }
+}
+
+public class AttachmentPolicy
+{
+    // Signature-image filter threshold in bytes.
+    // null  = user controls their own setting
+    //   0   = admin forces the feature OFF (show all attachments)
+    // > 0   = admin forces the feature ON with this threshold
+    public int? SigImgThreshold { get; set; }
 }
 
 public class AdminCredentials

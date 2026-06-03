@@ -15,17 +15,17 @@
     },
     "name": {
         "short": "SaveAsPDF",
-        "full": "SaveAsPDF — שמירת מיילים חכמה לתיקיות פרויקט"
+        "full": "SaveAsPDF — שמירת מיילים כ-PDF"
     },
     "description": {
-        "short": "שמרו מיילים כ-PDF לתיקיות הפרויקט — בלחיצה אחת, עם חותמת מקצועית",
-        "full": "פתרון חכם לתיעוד פרויקטים, ישירות מתיבת Outlook שלכם.\n\nSaveAsPDF מאפשר לשמור כל מייל כקובץ PDF מסודר ישירות לתיקיית הפרויקט ברשת — בלחיצה אחת, מבלי לצאת מ-Outlook.\n\n✅ שמירה מהירה לתיקיית הפרויקט הנכונה\n✅ חותמת אוטומטית: מספר פרויקט, שם, מנהל ותאריך\n✅ כל הקבצים המצורפים נשמרים יחד עם המייל\n✅ עץ תיקיות ויזואלי לבחירת יעד שמירה מדויק\n✅ שיוך קטגוריה אוטומטי לאחר השמירה\n✅ ניהול עובדי פרויקט ומנהל הפרויקט בתוך התוסף\n\nבמקום להדפיס, לסרוק ולגנוז ידנית — הכל נעשה בלחיצה אחת, אוטומטי ומקצועי.\n\nפותח ב-SW-ENG | ofer@sw-eng.co.il"
+        "short": "שמירת הודעות דוא\"ל כ-PDF בתיקיית הפרויקט",
+        "full": "תוסף Outlook לשמירת הודעות דוא\"ל כקובצי PDF בתיקיית הפרויקט המתאימה, כולל חותמת פרטי הפרויקט וקבצים מצורפים."
     },
     "icons": {
         "outline": "assets/outline.png",
         "color": "assets/color.png"
     },
-    "accentColor": "#0078D4",
+    "accentColor": "#230201",
     "validDomains": [
         "mg01"
     ],
@@ -69,7 +69,7 @@
                     "id": "TaskPaneRuntime",
                     "type": "general",
                     "code": {
-                        "page": "https://localhost:3000/taskpane.html"
+                        "page": "https://mg01:5176/taskpane.html"
                     },
                     "lifetime": "short",
                     "actions": [
@@ -85,8 +85,8 @@
                     "id": "CommandsRuntime",
                     "type": "general",
                     "code": {
-                        "page": "https://localhost:3000/commands.html",
-                        "script": "https://localhost:3000/commands.js"
+                        "page": "https://mg01:5176/commands.html",
+                        "script": "https://mg01:5176/commands.js"
                     },
                     "lifetime": "short",
                     "actions": [
@@ -112,63 +112,63 @@
                                     "icons": [
                                         {
                                             "size": 16,
-                                            "url": "https://localhost:3000/assets/icon-16.png"
+                                            "url": "https://mg01:5176/assets/icon-16.png"
                                         },
                                         {
                                             "size": 32,
-                                            "url": "https://localhost:3000/assets/icon-32.png"
+                                            "url": "https://mg01:5176/assets/icon-32.png"
                                         },
                                         {
                                             "size": 80,
-                                            "url": "https://localhost:3000/assets/icon-80.png"
+                                            "url": "https://mg01:5176/assets/icon-80.png"
                                         }
                                     ],
                                     "controls": [
                                         {
                                             "id": "msgReadOpenPaneButton",
                                             "type": "button",
-                                            "label": "שמור כ-PDF",
+                                            "label": "Show Task Pane",
                                             "icons": [
                                                 {
                                                     "size": 16,
-                                                    "url": "https://localhost:3000/assets/icon-16.png"
+                                                    "url": "https://mg01:5176/assets/icon-16.png"
                                                 },
                                                 {
                                                     "size": 32,
-                                                    "url": "https://localhost:3000/assets/icon-32.png"
+                                                    "url": "https://mg01:5176/assets/icon-32.png"
                                                 },
                                                 {
                                                     "size": 80,
-                                                    "url": "https://localhost:3000/assets/icon-80.png"
+                                                    "url": "https://mg01:5176/assets/icon-80.png"
                                                 }
                                             ],
                                             "supertip": {
-                                                "title": "פתח SaveAsPDF",
-                                                "description": "שמרו את המייל כ-PDF לתיקיית הפרויקט — עם חותמת אוטומטית, קבצים מצורפים ושיוך קטגוריה."
+                                                "title": "Show Task Pane",
+                                                "description": "Opens a pane displaying all available properties."
                                             },
                                             "actionId": "TaskPaneRuntimeShow"
                                         },
                                         {
                                             "id": "ActionButton",
                                             "type": "button",
-                                            "label": "שמור מהיר",
+                                            "label": "Perform an action",
                                             "icons": [
                                                 {
                                                     "size": 16,
-                                                    "url": "https://localhost:3000/assets/icon-16.png"
+                                                    "url": "https://mg01:5176/assets/icon-16.png"
                                                 },
                                                 {
                                                     "size": 32,
-                                                    "url": "https://localhost:3000/assets/icon-32.png"
+                                                    "url": "https://mg01:5176/assets/icon-32.png"
                                                 },
                                                 {
                                                     "size": 80,
-                                                    "url": "https://localhost:3000/assets/icon-80.png"
+                                                    "url": "https://mg01:5176/assets/icon-80.png"
                                                 }
                                             ],
                                             "supertip": {
-                                                "title": "שמירה מהירה",
-                                                "description": "שמרו את המייל הנוכחי כ-PDF בהגדרות ברירת המחדל — ללא פתיחת חלונית."
+                                                "title": "Perform an action",
+                                                "description": "Perform an action when clicked."
                                             },
                                             "actionId": "action"
                                         }

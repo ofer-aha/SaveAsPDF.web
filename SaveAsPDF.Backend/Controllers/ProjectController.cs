@@ -32,6 +32,8 @@ public class ProjectController : ControllerBase
         try { Directory.CreateDirectory(dir.FullName); }
         catch (Exception ex) { return StatusCode(500, new { error = ex.Message }); }
 
+        try { _data.EnsureInitialized(dir.FullName, number); } catch { }
+
         return Ok(new { folderPath = dir.FullName, projectNumber = number, created = true });
     }
 
@@ -59,6 +61,7 @@ public class ProjectController : ControllerBase
             });
         }
 
+        try { _data.EnsureInitialized(dir.FullName, number); } catch { }
         var (project, employees) = _data.Load(dir.FullName);
 
         return Ok(new

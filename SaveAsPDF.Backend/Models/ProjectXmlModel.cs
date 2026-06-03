@@ -10,4 +10,5 @@ public class ProjectXmlModel
     public string? DefaultSaveFolder { get; set; }
     public string? ProjectNotes { get; set; }
     public string? LastSavePath { get; set; }
+    public string? ProjectDate { get; set; }
 }

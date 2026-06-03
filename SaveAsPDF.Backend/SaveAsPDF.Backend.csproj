@@ -4,13 +4,47 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Fallback — overridden at build time by ReadVersionFromPackageJson below -->
     <Version>1.0.0</Version>
   </PropertyGroup>
+
+  <!--
+    Single source of truth: version is read from ../package.json via Node.js.
+    Both webpack (frontend bundle) and the .NET assembly version come from there.
+    To bump the version, edit "version" in package.json only.
+  -->
+  <Target Name="ReadVersionFromPackageJson" BeforeTargets="GenerateAssemblyInfo">
+    <Exec Command="node -e &quot;process.stdout.write(require('../package.json').version)&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="Low"
+          ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_PkgVersion" />
+    </Exec>
+    <PropertyGroup Condition="'$(_PkgVersion)' != ''">
+      <Version>$(_PkgVersion)</Version>
+      <AssemblyVersion>$(_PkgVersion)</AssemblyVersion>
+      <FileVersion>$(_PkgVersion)</FileVersion>
+      <InformationalVersion>$(_PkgVersion)</InformationalVersion>
+    </PropertyGroup>
+    <Message Text="Version from package.json: $(Version)" Importance="High" />
+  </Target>
+
+  <ItemGroup>
+    <!-- Deploy package.json alongside the binary so InfoController can read the version at runtime -->
+    <Content Include="..\package.json" Link="package.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.6" />
     <PackageReference Include="System.Data.OleDb" Version="8.0.0" />
     <PackageReference Include="System.DirectoryServices" Version="8.0.0" />
+    <PackageReference Include="itext7" Version="8.0.5" />
+    <PackageReference Include="itext7.pdfhtml" Version="5.0.5" />
+    <PackageReference Include="itext.bouncy-castle-adapter" Version="8.0.5" />
+    <!-- Force patched BouncyCastle over the vulnerable 2.2.1 transitive dep
+         (GHSA-8xfc-gm6g-vgpv / GHSA-m44j-cfrm-g8qc / GHSA-v435-xc8x-wvr9 — fixed in 2.3.0+) -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
   </ItemGroup>
 
 </Project>

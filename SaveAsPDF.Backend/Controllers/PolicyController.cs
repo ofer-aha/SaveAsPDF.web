@@ -12,7 +12,25 @@ public class PolicyController : ControllerBase
     [HttpGet]
     public IActionResult Get()
     {
-        var policy = _settings.Load().StampPolicy ?? new StampPolicy();
-        return Ok(new { stamp = policy });
+        var s = _settings.Load();
+        return Ok(new {
+            stamp      = s.StampPolicy      ?? new StampPolicy(),
+            attachment = s.AttachmentPolicy ?? new AttachmentPolicy()
+        });
+    }
+
+    // Check if the given email address belongs to the configured admin group.
+    // Used by the taskpane to show/hide the admin link. Controls UI only — not a security gate.
+    [HttpGet("is-admin")]
+    public IActionResult IsAdmin([FromQuery] string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return Ok(new { isAdmin = false });
+
+        var groupName = (_settings.Load().AdminGroup ?? "Domain Admins").Trim();
+        if (string.IsNullOrWhiteSpace(groupName))
+            return Ok(new { isAdmin = false });
+
+        return Ok(new { isAdmin = AdGroupService.IsUserInGroup(email, groupName) });
     }
 }

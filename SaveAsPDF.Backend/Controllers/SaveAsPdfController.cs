@@ -5,7 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 public class SaveAsPdfController : ControllerBase
 {
     private readonly SettingsService _settings;
-    public SaveAsPdfController(SettingsService settings) => _settings = settings;
+    private readonly ProjectDataService _data;
+    public SaveAsPdfController(SettingsService settings, ProjectDataService data)
+    {
+        _settings = settings;
+        _data     = data;
+    }
 
     private static string? ResolveSafeSubfolder(string projectRoot, string relativePath)
     {
@@ -33,6 +38,7 @@ public class SaveAsPdfController : ControllerBase
     }
 
     [HttpPost]
+    [RequestSizeLimit(100_000_000)]
     public IActionResult Save([FromBody] SaveAsPdfRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ProjectId))
@@ -65,6 +71,10 @@ public class SaveAsPdfController : ControllerBase
         var projectDir = ProjectPathResolver.Resolve(request.ProjectId, root);
         Directory.CreateDirectory(projectDir.FullName);
 
+        // Ensure .SaveAsPDF hidden folder exists before anything else so it is
+        // created even if PDF generation or attachment saving later throws.
+        try { _data.EnsureInitialized(projectDir.FullName, request.ProjectId); } catch { }
+
         // 2. Apply optional destination subfolder, validated against project root
         var saveDir = projectDir.FullName;
         if (!string.IsNullOrWhiteSpace(request.DestinationFolder))
@@ -79,10 +89,38 @@ public class SaveAsPdfController : ControllerBase
         // 3. Generate PDF (mandatory) — stamp + forward info embedded in the PDF
         var pdfInfo = PdfService.GeneratePdf(request.Email, saveDir, request);
 
-        // 4. Save attachments (mandatory)
-        AttachmentService.SaveAttachments(request.Attachments, saveDir);
+        // 4. Save attachments — best-effort; a corrupt attachment must never block
+        //    PDF delivery or metadata persistence (step 5).
+        try { AttachmentService.SaveAttachments(request.Attachments, saveDir); }
+        catch (Exception ex) { Console.Error.WriteLine($"[SaveAsPDF] attachment save failed: {ex.Message}"); }
 
-        // 5. Return info needed for stamping
+        // 5. Persist project metadata to the hidden .SaveAsPDF folder
+        try
+        {
+            var projectModel = new ProjectXmlModel
+            {
+                ProjectNumber = request.ProjectId,
+                ProjectName   = request.ProjectName,
+                ProjectDate   = DateTime.Now.ToString("dd/MM/yyyy HH:mm"),
+                LastSavePath  = pdfInfo.FullPath
+            };
+            var employeeModels = (request.Employees ?? []).Select((e, i) =>
+            {
+                var parts     = (e.DisplayName ?? "").Split(' ', 2);
+                return new EmployeeXmlModel
+                {
+                    Id           = i + 1,
+                    FirstName    = parts[0],
+                    LastName     = parts.Length > 1 ? parts[1] : "",
+                    EmailAddress = e.Email,
+                    IsLeader     = e.IsLeader
+                };
+            }).ToList();
+            _data.Save(projectDir.FullName, projectModel, employeeModels);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[SaveAsPDF] metadata save failed: {ex.Message}"); }
+
+        // 6. Return result
         return Ok(new
         {
             pdf = pdfInfo,

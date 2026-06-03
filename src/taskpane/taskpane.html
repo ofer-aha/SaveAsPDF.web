@@ -40,20 +40,37 @@
         .app-header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 18px;
+            gap: 6px;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
         }
-        .app-header img { width: 32px; height: 32px; }
-        .app-header h2 { flex: 1; }
+        .app-header img { width: 22px; height: 22px; flex-shrink: 0; }
+        .header-title {
+            flex: 1;
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .header-btns {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1px;
+            align-items: center;
+            flex-shrink: 0;
+        }
         .icon-btn {
             background: transparent;
-            border: 1px solid transparent;
-            border-radius: 6px;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
-            padding: 6px;
+            padding: 4px 5px;
             margin: 0;
             color: var(--muted);
-            font-size: 18px;
+            font-size: 15px;
             line-height: 1;
             display: flex;
             align-items: center;
@@ -61,11 +78,10 @@
             text-decoration: none;
             transition: background .15s, color .15s;
         }
-        .icon-btn:hover { 
-            background: var(--surface-2); 
+        .icon-btn:hover {
+            background: var(--surface-2);
             color: var(--text);
-            text-decoration: underline
-         }
+        }
 
         /* === Form === */
         label {
@@ -179,6 +195,31 @@
             font-size: 13px;
             color: var(--muted);
             min-height: 18px;
+        }
+
+        /* === Upload progress bar === */
+        #uploadProgress {
+            margin-top: 8px;
+            display: none;
+        }
+        #uploadProgressTrack {
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 10px;
+        }
+        #uploadProgressBar {
+            background: var(--primary, #0078d4);
+            height: 100%;
+            width: 0%;
+            border-radius: 4px;
+            transition: width 0.15s ease;
+        }
+        #uploadProgressLabel {
+            text-align: center;
+            font-size: 11px;
+            color: var(--muted, #666);
+            margin-top: 3px;
         }
 
         /* === Tabs === */
@@ -714,15 +755,26 @@
 
     <div class="app-header">
         <img src="./assets/saveaspdf-logo.png" alt="SaveAsPDF" />
-        <h2>SaveAsPDF</h2>
-        <h4><button id="openSettingsBtn" type="button" class="icon-btn" title="הגדרות" aria-label="Settings">⚙ הגדרות</button>
+        <span class="header-title">SaveAsPDF</span>
+        <div class="header-btns">
+            <button id="openSettingsBtn" type="button" class="icon-btn" title="הגדרות" aria-label="Settings">⚙</button>
+            <button id="bugReportBtn" type="button" class="icon-btn" title="דיווח על תקלה" aria-label="Bug report">🐛</button>
             <a id="helpLink"
                href="#"
                class="icon-btn"
                target="_blank"
                rel="noopener noreferrer"
                title="עזרה"
-               aria-label="Help">❓ עזרה</a></h4>
+               aria-label="Help">❓</a>
+            <a id="adminLink"
+               href="/admin"
+               class="icon-btn"
+               target="_blank"
+               rel="noopener noreferrer"
+               title="ממשק ניהול"
+               aria-label="Admin"
+               style="display:none">🛡</a>
+        </div>
     </div>
 
     <!-- Title -->
@@ -733,7 +785,7 @@
     </label>
     <input id="projectId"
            type="text"
-           placeholder="לדוגמה: 1000-2-1" />
+           placeholder="לדוגמה: 1972-5-13" />
 
 
     <!-- Project Name -->
@@ -742,7 +794,7 @@
     </label>
     <input id="projectName"
            type="text"
-           placeholder="לדוגמה: פיתוח מערכת CRM" />
+           placeholder="לדוגמה: תחנת שאיבה פומפה" />
     <label for="projectLeader">
         מנהל/ת פרויקט
     </label>
@@ -773,10 +825,12 @@
             הוספת חותמת עם פרטי הפרויקט בגוף ההודעה
         </label>
 
-        <label>
-            <input type="checkbox" id="optCategory" checked />
-            שיוך קטגוריה «SaveAsPDF – Processed»
-        </label>
+        <div id="categoryRow">
+            <label>
+                <input type="checkbox" id="optCategory" checked />
+                שיוך קטגוריה «SaveAsPDF – Processed»
+            </label>
+        </div>
         <!-- Tabs header -->
         <div class="tabs">
             <button class="tab-btn active" data-tab="attachmentsTab">
@@ -823,6 +877,8 @@
 
     <!-- Folder context menu (floating) -->
     <div id="folderCtxMenu" style="display:none;position:fixed;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:1500;min-width:170px;font-size:13px;direction:rtl;">
+        <div class="ctx-item" data-action="open"    style="padding:8px 12px;cursor:pointer">📂 פתח בסייר</div>
+        <div style="height:1px;background:#eee;margin:2px 0"></div>
         <div class="ctx-item" data-action="create"  style="padding:8px 12px;cursor:pointer">+ צור תיקיה חדשה</div>
         <div class="ctx-item" data-action="rename"  style="padding:8px 12px;cursor:pointer">✎ שנה שם</div>
         <div class="ctx-item" data-action="delete"  style="padding:8px 12px;cursor:pointer;color:#c53030">🗑 מחק</div>
@@ -856,7 +912,7 @@
         <div class="sp-tabs">
             <button class="sp-tab-btn active" data-sp-tab="spStampTab">סימון מצב</button>
             <button class="sp-tab-btn" data-sp-tab="spFolderTab">שם תיקיה</button>
-            <button class="sp-tab-btn" data-sp-tab="spDispatchTab">הפצה</button>
+            <button class="sp-tab-btn" data-sp-tab="spDispatchTab">הגדרות נוספות</button>
             <button class="sp-tab-btn" data-sp-tab="spCategoryTab">קטגוריות</button>
         </div>
 
@@ -939,6 +995,29 @@
                         סמן "העבר למנהל פרויקט" כברירת מחדל בכל שמירה
                     </label>
                 </div>
+                <div class="sp-section">
+                    <h3>מנהל פרויקט ברירת מחדל</h3>
+                    <div class="sp-hint">כאשר מופעל ואין מנהל פרויקט מוגדר, שמך ייקבע אוטומטית כמנהל/ת הפרויקט בכל פתיחת הודעה.</div>
+                    <label>
+                        <input type="checkbox" id="spAddSelfAsEmployee" />
+                        הגדר אותי כמנהל/ת פרויקט ברירת מחדל
+                    </label>
+                </div>
+                <div class="sp-section">
+                    <h3>קבצים מצורפים</h3>
+                    <div class="sp-hint">תמונות קטנות (לוגו חתימה, אייקונים) יוסתרו אוטומטית מרשימת הצרופות.</div>
+                    <label>
+                        <input type="checkbox" id="spHideSigImages"
+                               onchange="document.getElementById('spSigThresholdRow').style.display=this.checked?'flex':'none'" />
+                        הסתר תמונות חתימה קטנות
+                    </label>
+                    <div id="spSigThresholdRow" style="display:none;align-items:center;gap:8px;margin-top:6px;padding-right:24px;font-size:13px">
+                        <span>סף מקסימלי:</span>
+                        <input type="number" id="spSigImgThresholdKb" min="1" max="2048"
+                               style="width:65px;padding:3px 6px;border:1px solid #ccc;border-radius:4px" />
+                        <span>KB</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Categories tab -->
@@ -1014,6 +1093,14 @@
 
     <!-- Status area -->
     <div id="status"></div>
+
+    <!-- Upload progress bar (shown while sending to server) -->
+    <div id="uploadProgress">
+        <div id="uploadProgressTrack">
+            <div id="uploadProgressBar"></div>
+        </div>
+        <div id="uploadProgressLabel">0%</div>
+    </div>
 
     <!-- Always-visible credit footer -->
     <div class="credit-footer">

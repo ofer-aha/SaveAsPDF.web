@@ -1,5 +1,6 @@
 /* eslint-disable no-undef */
 
+const path = require("path");
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
@@ -7,7 +8,7 @@ const webpack = require("webpack");
 const pkg = require("./package.json");
 
 const urlDev = "https://localhost:3000/";
-const urlProd = "https://www.contoso.com/"; // CHANGE THIS TO YOUR PRODUCTION DEPLOYMENT LOCATION
+const urlProd = "https://mg01:5176/"; // CHANGE THIS TO YOUR PRODUCTION DEPLOYMENT LOCATION
 
 // Backend API base URL injected into the bundle as __BACKEND_BASE__.
 //   Dev  → talks to the .NET backend on http://localhost:5176
@@ -33,6 +34,10 @@ module.exports = async (env, options) => {
     },
     output: {
       clean: true,
+      path: "C:\\APPS\\SaveAsPDF\\wwwroot",
+      // Content hash in filename → browser always loads fresh JS after each build.
+      // HtmlWebpackPlugin injects the correct hashed filename into taskpane.html automatically.
+      filename: dev ? "[name].js" : "[name].[contenthash:8].js",
     },
     resolve: {
       extensions: [".html", ".js"],
