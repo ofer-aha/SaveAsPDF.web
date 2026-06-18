@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>SaveAsPDF — Admin</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            font-family: "Segoe UI", Tahoma, Arial;
+            max-width: 860px;
+            margin: 32px auto;
+            padding: 0 20px 40px;
+            color: #222;
+            background: #fafafa;
+        }
+        h1 { font-size: 22px; margin: 0 0 4px 0; }
+        .sub { color: #777; font-size: 13px; margin-bottom: 20px; }
+
+        /* ── Tabs ── */
+        .tabs {
+            display: flex;
+            gap: 2px;
+            border-bottom: 2px solid #0078d4;
+            margin-bottom: 20px;
+        }
+        .tab-btn {
+            padding: 9px 20px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px 4px 0 0;
+            color: #444;
+            transition: background .15s;
+        }
+        .tab-btn:hover  { background: #e0e0e0; }
+        .tab-btn.active { background: #0078d4; color: #fff; border-color: #0078d4; font-weight: 600; }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── Folder picker ── */
+        .fp-item { padding: 7px 10px; cursor: pointer; border-radius: 4px; font-size: 13px; }
+        .fp-item:hover { background: #eef5ff; }
+
+        /* ── Shared card ── */
+        .card {
+            background: #fff;
+            border: 1px solid #e1e1e1;
+            border-radius: 6px;
+            padding: 20px 24px;
+            box-shadow: 0 1px 2px rgba(0,0,0,.04);
+            margin-bottom: 18px;
+        }
+        h2 { font-size: 17px; margin: 0 0 14px; }
+        h3 { font-size: 15px; margin: 0 0 8px; }
+
+        label {
+            display: block;
+            margin-top: 16px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .hint { color: #888; font-weight: 400; font-size: 12px; margin-top: 2px; }
+        input[type=text], input[type=password], input[type=number], select {
+            width: 100%;
+            padding: 9px 10px;
+            margin-top: 6px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 9px 22px;
+            background: #0078d4;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px;
+            margin-top: 18px;
+        }
+        button:hover    { background: #006cbf; }
+        button:disabled { background: #aaa; cursor: default; }
+        button.danger   { background: #c42b1c; }
+        button.danger:hover { background: #a91d10; }
+        button.secondary { background: #fff; color: #0078d4; border: 1px solid #0078d4; margin-top: 0; }
+        button.secondary:hover { background: #f0f7ff; }
+
+        .status {
+            margin-top: 16px;
+            padding: 10px 14px;
+            border-radius: 4px;
+            font-size: 13px;
+            display: none;
+            white-space: pre-line;
+        }
+        .status.success { background: #dff6dd; color: #107c10; display: block; }
+        .status.error   { background: #fde7e9; color: #a4262c; display: block; }
+
+        /* ── Probe ── */
+        .probe { margin-top: 28px; padding-top: 18px; border-top: 1px solid #eee; }
+        .probe-row { display: flex; gap: 8px; align-items: flex-end; }
+        .probe-row label { flex: 1; }
+        .probe button { margin-top: 0; }
+        pre {
+            background: #f5f5f5; border: 1px solid #e0e0e0;
+            padding: 12px; font-size: 12px; border-radius: 4px;
+            margin-top: 12px; white-space: pre-wrap;
+            max-height: 300px; overflow: auto;
+        }
+        .probe-card { margin-top: 14px; }
+        .probe-banner {
+            padding: 10px 14px; border-radius: 4px;
+            display: flex; align-items: center; gap: 8px;
+            font-weight: 600; font-size: 14px;
+        }
+        .probe-banner.ok    { background: #dff6dd; color: #107c10; }
+        .probe-banner.miss  { background: #fde7e9; color: #a4262c; }
+        .probe-banner.error { background: #fff4ce; color: #8a6800; }
+        .probe-banner .ico  { font-size: 18px; }
+        .probe-info {
+            background: #f9f9fb; border: 1px solid #e5e5e5;
+            border-radius: 4px; padding: 12px 16px; margin-top: 10px;
+        }
+        .probe-info-row { display: flex; gap: 8px; padding: 4px 0; font-size: 13px; }
+        .probe-info-row .lbl  { color: #666; min-width: 110px; }
+        .probe-info-row .val  { flex: 1; color: #222; word-break: break-all; }
+        .probe-info-row .val.path { font-family: Consolas, Menlo, monospace; font-size: 12px; }
+        .probe-info-row .val.heb  { direction: rtl; text-align: right; }
+        .probe-notes {
+            margin-top: 8px; padding: 10px 12px;
+            background: #fff; border: 1px dashed #ccc; border-radius: 4px;
+            font-size: 13px; color: #444;
+            direction: rtl; text-align: right;
+            white-space: pre-wrap; max-height: 140px; overflow-y: auto;
+        }
+        .emp-table {
+            width: 100%; border-collapse: collapse;
+            margin-top: 10px; font-size: 13px; background: #fff;
+            border: 1px solid #e5e5e5; border-radius: 4px; overflow: hidden;
+        }
+        .emp-table th {
+            background: #f5f5f5; padding: 7px 10px;
+            font-weight: 600; text-align: left; border-bottom: 1px solid #e5e5e5;
+        }
+        .emp-table td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; }
+        .emp-table tr.leader td { background: #fffbe6; }
+        .emp-table tr:last-child td { border-bottom: none; }
+        .emp-table .badge {
+            display: inline-block; background: #f0c000; color: #333;
+            font-size: 10px; font-weight: 700; padding: 1px 6px;
+            border-radius: 8px; margin-left: 6px;
+        }
+        .emp-table td.email { font-family: Consolas, Menlo, monospace; font-size: 12px; color: #555; }
+        .raw-toggle { margin-top: 14px; font-size: 12px; color: #666; cursor: pointer; user-select: none; }
+        .raw-toggle:hover { text-decoration: underline; }
+
+        /* ── Policy table ── */
+        #policyTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+        #policyTable thead tr { background: #f5f5f5; }
+        #policyTable th { text-align: left; padding: 6px 8px; font-weight: 600; }
+        #policyTable td { padding: 7px 8px; border-top: 1px solid #f0f0f0; }
+
+        /* ── PDF Settings tab ── */
+        .margins-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 8px;
+        }
+        .margins-grid label { margin-top: 0; }
+        .orientation-row { display: flex; gap: 24px; margin-top: 10px; }
+        .orientation-row label {
+            margin-top: 0; font-weight: 400;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .orientation-row input[type=radio] { width: auto; margin-top: 0; }
+
+        /* ── Logs tab ── */
+        .log-toolbar {
+            display: flex; flex-wrap: wrap;
+            gap: 8px; align-items: flex-end; margin-bottom: 14px;
+        }
+        .log-toolbar select,
+        .log-toolbar input[type=text],
+        .log-toolbar input[type=date] {
+            padding: 7px 9px; font-size: 13px;
+            border: 1px solid #ccc; border-radius: 4px;
+            margin-top: 0; width: auto;
+        }
+        .log-toolbar select { min-width: 110px; }
+        .log-toolbar input[type=text] { min-width: 180px; flex: 1; }
+        .log-toolbar button { margin-top: 0; padding: 7px 16px; font-size: 13px; }
+
+        .live-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 4px; font-size: 13px;
+            background: #f0f0f0; cursor: pointer; user-select: none;
+            border: 1px solid #ccc;
+        }
+        .live-badge.on { background: #dff6dd; border-color: #107c10; color: #107c10; }
+        .live-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: #aaa; }
+        .live-badge.on .dot { background: #107c10; animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+        #logTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+        #logTable th {
+            background: #f5f5f5; padding: 7px 10px; font-weight: 600;
+            text-align: left; border-bottom: 2px solid #e5e5e5; white-space: nowrap;
+        }
+        #logTable td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        #logTable tr:last-child td { border-bottom: none; }
+        #logTable tr:hover td { background: #fafafa; }
+        #logTable .ts  { color: #888; font-size: 12px; white-space: nowrap; font-family: Consolas, monospace; }
+        #logTable .att { color: #555; font-size: 12px; }
+
+        .lvl-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+        .lvl-success { background: #dff6dd; color: #107c10; }
+        .lvl-warning { background: #fff4ce; color: #8a6800; }
+        .lvl-error   { background: #fde7e9; color: #a4262c; }
+        .lvl-info    { background: #e5f0ff; color: #1353a0; }
+
+        .log-empty { color: #888; text-align: center; padding: 30px; font-size: 13px; }
+        #logCount  { font-size: 12px; color: #666; margin-left: 8px; }
+
+        .retention-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+        .retention-row label { margin-top: 0; min-width: 200px; flex: 1; }
+        .retention-row input[type=number] { width: 100%; }
+
+        #defaultPwdBanner {
+            display: none; margin-bottom: 16px; padding: 12px 16px;
+            background: #fff4ce; border: 1px solid #f5d77a; border-radius: 6px;
+            font-size: 13px; color: #8a6800;
+        }
+    </style>
+</head>
+<body>
+    <h1>
+        SaveAsPDF — Admin
+        <span id="versionBadge" style="font-size:12px;font-weight:400;color:#666;margin-left:8px;background:#f0f0f0;padding:2px 8px;border-radius:10px"></span>
+    </h1>
+    <div class="sub">
+        Manage backend settings used by the Outlook add-in.<br/>
+        <a href="/help/admin">Admin help</a> · <a href="/help">User help</a><br/>
+        <span style="font-size:11px;color:#999">by Ofer Aharon &lt;<a href="mailto:ofer@sw-eng.co.il" style="color:#999">ofer@sw-eng.co.il</a>&gt;</span>
+    </div>
+
+    <div id="defaultPwdBanner">
+        <b>⚠ סיסמת ברירת מחדל בשימוש</b> — מומלץ מאוד לשנות את הסיסמה כעת בכרטיס "Admin Account".
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="tabSettings">Settings</button>
+        <button class="tab-btn"        data-tab="tabProbe">Prob</button>
+        <button class="tab-btn"        data-tab="tabAccount">Admin Account</button>
+        <button class="tab-btn"        data-tab="tabPdf">PDF Settings</button>
+        <button class="tab-btn"        data-tab="tabLogs">Logs</button>
+    </div>
+
+    <!-- ── Settings ── -->
+    <div id="tabSettings" class="tab-panel active">
+        <div class="card">
+            <h2>Settings</h2>
+            <form id="settingsForm">
+                <label>Projects Root Folder
+                    <div class="hint">Top-level folder under which all projects live, e.g. <code>J:\</code></div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <input id="projectsRoot" type="text" placeholder="J:\" style="flex:1" />
+                        <button type="button" class="secondary" onclick="openFolderPicker()" style="margin-top:6px;white-space:nowrap">📁 Browse…</button>
+                    </div>
+                </label>
+                <fieldset style="margin-top:24px;padding:14px 18px;border:1px solid #e5e5e5;border-radius:6px">
+                    <legend style="padding:0 6px;font-size:13px;font-weight:600;color:#444">Stamp Policy (admin override)</legend>
+                    <div class="hint" style="margin-top:0;margin-bottom:10px">Forced fields are locked in the taskpane and enforced server-side on every save.</div>
+                    <table id="policyTable">
+                        <thead><tr><th>Field</th><th style="width:70px;text-align:center">User</th><th style="width:90px;text-align:center">Force ON</th><th style="width:90px;text-align:center">Force OFF</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </fieldset>
+                <button type="submit" id="saveBtn">Save</button>
+                <div id="settingsStatus" class="status"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Prob (project-number probe) ── -->
+    <div id="tabProbe" class="tab-panel">
+        <div class="card">
+            <h2>Probe a project number</h2>
+            <div class="hint" style="margin-top:0">Resolve a project number against the current root.</div>
+            <div class="probe-row" style="margin-top:12px">
+                <label style="margin-top:0"><input id="probeNum" type="text" placeholder="e.g. 1000-2-1" /></label>
+                <button type="button" id="probeBtn">Probe</button>
+            </div>
+            <div id="probeResult" class="probe-card" style="display:none"></div>
+            <div id="rawToggle" class="raw-toggle" style="display:none">▾ Show raw JSON</div>
+            <pre id="probeRaw" style="display:none"></pre>
+        </div>
+    </div>
+
+    <!-- ── Admin Account ── -->
+    <div id="tabAccount" class="tab-panel">
+        <div class="card">
+            <h2>Admin Account</h2>
+            <div class="hint" style="margin-top:0">Default is <code>admin</code> / <code>admin</code>. Passwords are stored hashed (PBKDF2-SHA256).</div>
+            <form id="accountForm">
+                <label>Username<input id="accUsername" type="text" placeholder="admin" autocomplete="username" /></label>
+                <label>New Password
+                    <div class="hint">Minimum 4 characters.</div>
+                    <input id="accPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
+                </label>
+                <button type="submit" id="accSaveBtn">Update Credentials</button>
+                <div id="accStatus" class="status"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── PDF Settings ── -->
+    <div id="tabPdf" class="tab-panel">
+        <div class="card">
+            <h2>PDF Output Settings</h2>
+            <div class="hint" style="margin-top:0">Controls page size, margins, and orientation for all generated PDF files. Changes take effect on the next save — no restart required.</div>
+
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:16px">
+                <label style="flex:1;min-width:160px;margin-top:0">Page Size
+                    <select id="pdfPageSize">
+                        <option value="A4">A4  (210 × 297 mm)</option>
+                        <option value="Letter">Letter  (216 × 279 mm)</option>
+                        <option value="Legal">Legal  (216 × 356 mm)</option>
+                        <option value="A3">A3  (297 × 420 mm)</option>
+                    </select>
+                </label>
+                <div style="flex:1;min-width:160px">
+                    <div style="font-weight:600;font-size:14px">Orientation</div>
+                    <div class="orientation-row">
+                        <label><input type="radio" name="pdfOrientation" value="portrait" checked /> Portrait</label>
+                        <label><input type="radio" name="pdfOrientation" value="landscape" /> Landscape</label>
+                    </div>
+                </div>
+            </div>
+
+            <fieldset style="margin-top:20px;padding:14px 18px;border:1px solid #e5e5e5;border-radius:6px">
+                <legend style="padding:0 6px;font-size:13px;font-weight:600;color:#444">
+                    Margins (cm)
+                    <button type="button" class="secondary" onclick="resetWordMargins()" style="margin-left:10px;padding:3px 10px;font-size:12px">Reset to Word defaults (2.54 cm)</button>
+                </legend>
+                <div class="margins-grid">
+                    <label>Top<input    id="pdfMarginTop"    type="number" min="0.5" max="10" step="0.01" /></label>
+                    <label>Bottom<input id="pdfMarginBottom" type="number" min="0.5" max="10" step="0.01" /></label>
+                    <label>Left<input   id="pdfMarginLeft"   type="number" min="0.5" max="10" step="0.01" /></label>
+                    <label>Right<input  id="pdfMarginRight"  type="number" min="0.5" max="10" step="0.01" /></label>
+                </div>
+            </fieldset>
+
+            <div style="margin-top:16px;display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="pdfPrintBackground" style="width:auto;margin-top:0;cursor:pointer" />
+                <label for="pdfPrintBackground" style="margin-top:0;font-weight:600;cursor:pointer">
+                    Print background <span class="hint" style="display:inline;margin-left:4px">(colours, stamp banner — recommended ON)</span>
+                </label>
+            </div>
+
+            <fieldset style="margin-top:20px;padding:14px 18px;border:1px solid #e5e5e5;border-radius:6px">
+                <legend style="padding:0 6px;font-size:13px;font-weight:600;color:#444">Admin control (lock in user taskpane)</legend>
+                <div class="hint" style="margin-top:0;margin-bottom:10px">Locked settings are forced to the values above and disabled in each user's taskpane. Unlocked settings can be changed per-user.</div>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockPageSize"        style="width:auto;margin-top:0"/> Page size — admin-controlled</label>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockOrientation"     style="width:auto;margin-top:0"/> Orientation — admin-controlled</label>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockMargins"         style="width:auto;margin-top:0"/> Margins — admin-controlled</label>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockPrintBackground" style="width:auto;margin-top:0"/> Print background — admin-controlled</label>
+            </fieldset>
+
+            <button type="button" id="pdfSaveBtn" onclick="savePdfSettings()">Save PDF Settings</button>
+            <div id="pdfStatus" class="status"></div>
+        </div>
+
+        <div class="card">
+            <h2>PDF Engine</h2>
+            <div class="hint" style="margin-top:0">The PDF is rendered by a headless Chromium browser (via PuppeteerSharp). You can pull the latest Chromium build below.</div>
+            <div class="probe-info" style="margin-top:14px">
+                <div class="probe-info-row"><div class="lbl">Engine</div><div class="val" id="engEngine">—</div></div>
+                <div class="probe-info-row"><div class="lbl">PuppeteerSharp</div><div class="val" id="engPuppeteer">—</div></div>
+                <div class="probe-info-row"><div class="lbl">Current build</div><div class="val" id="engCurrent">—</div></div>
+                <div class="probe-info-row"><div class="lbl">Installed builds</div><div class="val" id="engInstalled">—</div></div>
+                <div class="probe-info-row"><div class="lbl">Cache dir</div><div class="val path" id="engCacheDir">—</div></div>
+            </div>
+            <button type="button" id="engUpdateBtn" onclick="updateEngine()">⬇ Update to latest Chromium</button>
+            <button type="button" class="secondary" onclick="loadEngine()" style="margin-left:8px">↻ Refresh</button>
+            <div id="engStatus" class="status"></div>
+        </div>
+    </div>
+
+    <!-- ── Logs ── -->
+    <div id="tabLogs" class="tab-panel">
+        <div class="card">
+            <h2>Log Retention</h2>
+            <div class="hint" style="margin-top:0">Controls the in-memory ring buffer. Changing these takes effect on the next save event.</div>
+            <div class="retention-row">
+                <label>Max entries to keep
+                    <div class="hint">Oldest entries are dropped when the buffer is full.</div>
+                    <input id="retMaxEntries" type="number" min="10" max="100000" placeholder="1000" />
+                </label>
+                <label>Retain days (0 = keep forever)
+                    <div class="hint">Entries older than this are removed automatically.</div>
+                    <input id="retRetainDays" type="number" min="0" max="3650" placeholder="30" />
+                </label>
+            </div>
+            <button type="button" id="retSaveBtn" style="margin-top:14px">Save Retention Settings</button>
+            <div id="retStatus" class="status"></div>
+        </div>
+
+        <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <h2 style="margin:0">Save Events <span id="logCount"></span></h2>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span id="liveBadge" class="live-badge on" onclick="toggleLive()"><span class="dot"></span> Live</span>
+                    <button type="button" class="secondary" onclick="loadLogs()">↻ Refresh</button>
+                    <button type="button" id="exportCsvBtn" class="secondary" onclick="exportCsv()">⬇ Export CSV</button>
+                    <button type="button" class="danger" onclick="clearLogs()">🗑 Clear All</button>
+                </div>
+            </div>
+            <div class="log-toolbar">
+                <select id="filterLevel" onchange="loadLogs()">
+                    <option value="">All levels</option>
+                    <option value="success">✅ Success</option>
+                    <option value="warning">⚠️ Warning</option>
+                    <option value="error">❌ Error</option>
+                    <option value="info">ℹ️ Info</option>
+                </select>
+                <input type="text" id="filterSearch" placeholder="Search username / subject / project…" oninput="scheduleLogFilter()" />
+                <input type="date" id="filterFrom" onchange="loadLogs()" />
+                <input type="date" id="filterTo"   onchange="loadLogs()" />
+                <button type="button" class="secondary" onclick="clearFilters()">✕ Clear filters</button>
+            </div>
+            <div style="overflow-x:auto">
+                <table id="logTable">
+                    <thead><tr>
+                        <th style="width:140px">Timestamp</th>
+                        <th style="width:80px">Level</th>
+                        <th style="width:160px">Username</th>
+                        <th>Subject</th>
+                        <th style="width:180px">Attachments</th>
+                        <th style="width:110px">Project</th>
+                    </tr></thead>
+                    <tbody id="logBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Login overlay ── -->
+    <div id="loginOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center">
+        <div style="background:#fff;border-radius:8px;padding:28px 32px;max-width:340px;width:92%;box-shadow:0 8px 30px rgba(0,0,0,.25)">
+            <div style="font-size:32px;text-align:center;margin-bottom:12px">🔒</div>
+            <h3 id="loginTitle" style="margin:0 0 16px;font-size:17px;text-align:center">Admin Login</h3>
+            <input id="loginUser" type="text" placeholder="Username" autocomplete="username"
+                   style="width:100%;padding:9px 10px;font-size:14px;border:1px solid #ccc;border-radius:4px;margin-bottom:10px" />
+            <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password"
+                   style="width:100%;padding:9px 10px;font-size:14px;border:1px solid #ccc;border-radius:4px;margin-bottom:10px" />
+            <div id="loginError" style="display:none;color:#a4262c;font-size:13px;margin-bottom:10px;background:#fde7e9;padding:8px 10px;border-radius:4px"></div>
+            <button id="loginBtn" onclick="doLogin()" style="width:100%;background:#0078d4;color:#fff;border:none;border-radius:4px;padding:10px;font-size:14px;cursor:pointer">Login</button>
+        </div>
+    </div>
+
+    <!-- ── Folder picker (Browse) ── -->
+    <div id="folderPicker" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;align-items:center;justify-content:center">
+        <div style="background:#fff;border-radius:8px;width:520px;max-width:94%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.25)">
+            <div style="padding:16px 20px;border-bottom:1px solid #eee;font-weight:600">Select Projects Root Folder</div>
+            <div id="fpCurrent" style="padding:8px 20px;font-family:Consolas,monospace;font-size:12px;color:#555;background:#f9f9fb;word-break:break-all">—</div>
+            <div id="fpList" style="flex:1;overflow:auto;padding:6px 12px;min-height:160px"></div>
+            <div style="padding:14px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px">
+                <button type="button" class="secondary" onclick="closeFolderPicker()" style="margin-top:0">Cancel</button>
+                <button type="button" onclick="chooseCurrentFolder()" style="margin-top:0">Select this folder</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const SESSION_KEY = 'saveaspdf_admin_token';
+    const IDLE_MS     = 10 * 60 * 1000;
+    let   _token      = sessionStorage.getItem(SESSION_KEY) || '';
+    let   _idleTimer  = null;
+
+    async function initSession() {
+        if (_token) {
+            try {
+                const res = await fetch('/api/admin/me', { headers: { 'X-Admin-Token': _token } });
+                if (res.ok) { hideLoginOverlay(); resetIdle(); return; }
+            } catch {}
+        }
+        _token = ''; sessionStorage.removeItem(SESSION_KEY);
+        showLoginOverlay('Admin Login');
+    }
+
+    async function doLogin() {
+        const username = document.getElementById('loginUser').value.trim();
+        const password = document.getElementById('loginPass').value;
+        const errEl = document.getElementById('loginError'), btn = document.getElementById('loginBtn');
+        errEl.style.display = 'none'; btn.disabled = true;
+        try {
+            const res  = await fetch('/api/admin/session', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username,password}) });
+            const data = await res.json().catch(()=>({}));
+            if (res.ok) {
+                _token = data.token; sessionStorage.setItem(SESSION_KEY, _token);
+                hideLoginOverlay(); resetIdle(); loadAll();
+            } else {
+                errEl.textContent = data.error||'Login failed'; errEl.style.display = 'block';
+                document.getElementById('loginPass').value = ''; document.getElementById('loginPass').focus();
+            }
+        } catch (e) { errEl.textContent = 'Connection error: '+e.message; errEl.style.display='block'; }
+        finally { btn.disabled = false; }
+    }
+
+    function showLoginOverlay(title) {
+        stopLive();
+        document.getElementById('loginTitle').textContent = title||'Admin Login';
+        document.getElementById('loginError').style.display = 'none';
+        document.getElementById('loginOverlay').style.display = 'flex';
+        setTimeout(()=>document.getElementById('loginUser').focus(), 50);
+    }
+    function hideLoginOverlay() { document.getElementById('loginOverlay').style.display='none'; }
+    function resetIdle() { clearTimeout(_idleTimer); _idleTimer = setTimeout(expireSession, IDLE_MS); }
+    function expireSession() { _token=''; sessionStorage.removeItem(SESSION_KEY); showLoginOverlay('Session Expired — Please Log In Again'); }
+
+    ['click','keydown','mousemove','scroll'].forEach(e=>document.addEventListener(e,resetIdle,{passive:true}));
+    window.addEventListener('keydown',e=>{ if(e.key==='Enter'&&document.getElementById('loginOverlay').style.display==='flex') doLogin(); });
+
+    async function authFetch(url,opts) {
+        opts=Object.assign({},opts); opts.headers=Object.assign({},opts.headers);
+        if(_token) opts.headers['X-Admin-Token']=_token;
+        const res=await fetch(url,opts);
+        if(res.status===401) expireSession();
+        return res;
+    }
+    window.addEventListener('beforeunload',()=>{ if(_token) navigator.sendBeacon('/api/admin/session/revoke?t='+encodeURIComponent(_token)); sessionStorage.removeItem(SESSION_KEY); });
+
+    // ── Tabs ───────────────────────────────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+            document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.tab).classList.add('active');
+            if      (btn.dataset.tab==='tabLogs') { loadRetention(); loadLogs(); if(_liveOn) startLive(); }
+            else if (btn.dataset.tab==='tabPdf')  { loadPdfSettings(); loadEngine(); }
+            else    { stopLive(); }
+        });
+    });
+
+    function loadAll() { loadSettings(); loadVersion(); loadAccount(); loadPdfSettings(); }
+    function escapeHtml(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function showStatus(id,msg,success) { const el=document.getElementById(id); el.className='status '+(success?'success':'error'); el.textContent=msg; }
+
+    // ── Version ────────────────────────────────────────────────────────────────
+    async function loadVersion() {
+        try { const i=await(await fetch('/api/info')).json(); const b=document.getElementById('versionBadge'); if(b&&i.version) b.textContent='v'+i.version; } catch {}
+    }
+
+    // ── Settings ───────────────────────────────────────────────────────────────
+    const POLICY_FIELDS = [
+        {key:'defaultStamp',label:'Add stamp to PDF (master)'},{key:'includeProjectId',label:'Project number'},
+        {key:'includeProjectName',label:'Project name'},{key:'includeLeader',label:'Project leader'},
+        {key:'includeDate',label:'Save date'},{key:'includeUser',label:'Saving user'},
+        {key:'includeEmployees',label:'Employees list'},{key:'includeAttachments',label:'Attachments list'},
+        {key:'includeFrom',label:'Message: From'},{key:'includeTo',label:'Message: To'},
+        {key:'includeCc',label:'Message: CC'},{key:'includeSent',label:'Message: Sent date'},
+        {key:'includeReceived',label:'Message: Received date'},{key:'includeSubject',label:'Message: Subject'}
+    ];
+    function renderPolicyTable(policy) {
+        document.querySelector('#policyTable tbody').innerHTML = POLICY_FIELDS.map(f=>{
+            const v=policy?.[f.key];
+            return `<tr><td>${escapeHtml(f.label)}</td>
+                <td style="text-align:center"><input type="radio" name="pol_${f.key}" value="user" ${v==null?'checked':''}/></td>
+                <td style="text-align:center"><input type="radio" name="pol_${f.key}" value="on"   ${v===true?'checked':''}/></td>
+                <td style="text-align:center"><input type="radio" name="pol_${f.key}" value="off"  ${v===false?'checked':''}/></td></tr>`;
+        }).join('');
+    }
+    function readPolicyFromTable() {
+        const out={};
+        for(const f of POLICY_FIELDS){ const v=document.querySelector(`input[name="pol_${f.key}"]:checked`)?.value; out[f.key]=v==='on'?true:v==='off'?false:null; }
+        return out;
+    }
+    async function loadSettings() {
+        try { const s=await(await authFetch('/api/settings')).json(); document.getElementById('projectsRoot').value=s.projectsRoot||''; renderPolicyTable(s.stampPolicy||{}); }
+        catch(e){ showStatus('settingsStatus','Failed to load: '+e.message,false); renderPolicyTable({}); }
+    }
+    document.getElementById('settingsForm').addEventListener('submit',async e=>{
+        e.preventDefault();
+        const projectsRoot=document.getElementById('projectsRoot').value.trim();
+        if(!projectsRoot){showStatus('settingsStatus','Root folder cannot be empty',false);return;}
+        const btn=document.getElementById('saveBtn'); btn.disabled=true;
+        try {
+            const res=await authFetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectsRoot,stampPolicy:readPolicyFromTable()})});
+            if(res.ok){
+                const data=await res.json();
+                const forced=Object.values(data.stampPolicy||{}).filter(v=>v!=null).length;
+                let msg=`Saved. Projects root = ${data.projectsRoot}`+(forced?` · ${forced} stamp field(s) forced`:'');
+                if(data.warning) msg+='\n'+data.warning;
+                showStatus('settingsStatus',msg,true); renderPolicyTable(data.stampPolicy||{});
+                try{const me=await(await authFetch('/api/admin/me')).json();document.getElementById('defaultPwdBanner').style.display=me.usingDefaultPassword?'block':'none';}catch{}
+            } else { const b=await res.json().catch(()=>({})); showStatus('settingsStatus',b.error||`Save failed (${res.status})`,false); }
+        } catch(err){showStatus('settingsStatus','Save failed: '+err.message,false);}
+        finally{btn.disabled=false;}
+    });
+    document.getElementById('probeBtn').onclick=async()=>{
+        const num=document.getElementById('probeNum').value.trim();
+        const card=document.getElementById('probeResult'),raw=document.getElementById('probeRaw'),tgl=document.getElementById('rawToggle');
+        if(!num){card.style.display=raw.style.display=tgl.style.display='none';return;}
+        try{
+            const res=await fetch(`/api/project/${encodeURIComponent(num)}`),body=await res.json();
+            renderProbe(body,res.ok); raw.textContent=JSON.stringify(body,null,2); raw.style.display='none'; tgl.style.display='block'; tgl.textContent='▾ Show raw JSON';
+        }catch(e){renderProbe({error:e.message},false);tgl.style.display='none';}
+    };
+    document.getElementById('rawToggle').onclick=()=>{
+        const raw=document.getElementById('probeRaw'),tgl=document.getElementById('rawToggle'),s=raw.style.display!=='none';
+        raw.style.display=s?'none':'block'; tgl.textContent=s?'▾ Show raw JSON':'▴ Hide raw JSON';
+    };
+    function renderProbe(body,httpOk){
+        const card=document.getElementById('probeResult');
+        if(!httpOk){card.innerHTML=`<div class="probe-banner error"><span class="ico">⚠</span><span>${escapeHtml(body.error||'Server error')}</span></div>`;card.style.display='block';return;}
+        if(!body.exists){
+            card.innerHTML=`<div class="probe-banner miss"><span class="ico">✕</span><span>Project not found on disk</span></div>
+                <div class="probe-info"><div class="probe-info-row"><div class="lbl">Project Number</div><div class="val">${escapeHtml(body.projectNumber)}</div></div>
+                <div class="probe-info-row"><div class="lbl">Expected Path</div><div class="val path">${escapeHtml(body.expectedPath)}</div></div></div>`;
+            card.style.display='block';return;
+        }
+        const employees=Array.isArray(body.employees)?body.employees:[];
+        const empRows=employees.length===0?`<tr><td colspan="2" style="color:#888;text-align:center;padding:14px">No employees</td></tr>`
+            :employees.map(e=>`<tr class="${e.isLeader?'leader':''}"><td>${escapeHtml(e.displayName)}${e.isLeader?'<span class="badge">LEADER</span>':''}</td><td class="email">${escapeHtml(e.email)}</td></tr>`).join('');
+        card.innerHTML=`<div class="probe-banner ok"><span class="ico">✓</span><span>Project found</span></div>
+            <div class="probe-info">
+                <div class="probe-info-row"><div class="lbl">Project Number</div><div class="val">${escapeHtml(body.projectNumber)}</div></div>
+                <div class="probe-info-row"><div class="lbl">Project Name</div><div class="val heb">${escapeHtml(body.projectName)||"<i style='color:#999'>(empty)</i>"}</div></div>
+                <div class="probe-info-row"><div class="lbl">Folder Path</div><div class="val path">${escapeHtml(body.folderPath)}</div></div>
+                ${body.projectNotes?`<div class="probe-info-row" style="display:block"><div class="lbl" style="margin-bottom:4px">Project Notes</div><div class="probe-notes">${escapeHtml(body.projectNotes)}</div></div>`:''}
+            </div>
+            <div style="margin-top:14px;font-weight:600;font-size:13px">Employees (${employees.length})</div>
+            <table class="emp-table"><thead><tr><th>Name</th><th>Email</th></tr></thead><tbody>${empRows}</tbody></table>`;
+        card.style.display='block';
+    }
+
+    // ── Admin Account ──────────────────────────────────────────────────────────
+    async function loadAccount(){
+        try{const me=await(await authFetch('/api/admin/me')).json();document.getElementById('accUsername').value=me.username||'admin';document.getElementById('defaultPwdBanner').style.display=me.usingDefaultPassword?'block':'none';}catch{}
+    }
+    document.getElementById('accountForm').addEventListener('submit',async e=>{
+        e.preventDefault();
+        const username=document.getElementById('accUsername').value.trim(),password=document.getElementById('accPassword').value;
+        if(!password){showStatus('accStatus','Password is required',false);return;}
+        if(password.length<4){showStatus('accStatus','Password must be at least 4 characters',false);return;}
+        const btn=document.getElementById('accSaveBtn');btn.disabled=true;
+        try{
+            const res=await authFetch('/api/admin/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+            if(res.ok){const d=await res.json();document.getElementById('accPassword').value='';showStatus('accStatus',`Saved. Username = ${d.username}.`,true);document.getElementById('defaultPwdBanner').style.display='none';}
+            else{const b=await res.json().catch(()=>({}));showStatus('accStatus',b.error||`Save failed (${res.status})`,false);}
+        }catch(err){showStatus('accStatus','Save failed: '+err.message,false);}
+        finally{btn.disabled=false;}
+    });
+
+    // ── PDF Settings ───────────────────────────────────────────────────────────
+    async function loadPdfSettings(){
+        try{
+            const res=await authFetch('/api/settings/pdf');if(!res.ok)return;
+            const body=await res.json();
+            const s=body.settings||body, p=body.policy||{};
+            document.getElementById('pdfPageSize').value=s.pageSize||'A4';
+            document.querySelector(`input[name="pdfOrientation"][value="${s.landscape?'landscape':'portrait'}"]`).checked=true;
+            document.getElementById('pdfMarginTop').value=(s.marginTopCm??2.54).toFixed(2);
+            document.getElementById('pdfMarginBottom').value=(s.marginBottomCm??2.54).toFixed(2);
+            document.getElementById('pdfMarginLeft').value=(s.marginLeftCm??2.54).toFixed(2);
+            document.getElementById('pdfMarginRight').value=(s.marginRightCm??2.54).toFixed(2);
+            document.getElementById('pdfPrintBackground').checked=s.printBackground!==false;
+            document.getElementById('pdfLockPageSize').checked=!!p.pageSize;
+            document.getElementById('pdfLockOrientation').checked=!!p.orientation;
+            document.getElementById('pdfLockMargins').checked=!!p.margins;
+            document.getElementById('pdfLockPrintBackground').checked=!!p.printBackground;
+        }catch{}
+    }
+    async function savePdfSettings(){
+        const btn=document.getElementById('pdfSaveBtn');btn.disabled=true;
+        try{
+            const settings={
+                pageSize:document.getElementById('pdfPageSize').value,
+                landscape:document.querySelector('input[name="pdfOrientation"]:checked')?.value==='landscape',
+                marginTopCm:parseFloat(document.getElementById('pdfMarginTop').value)||2.54,
+                marginBottomCm:parseFloat(document.getElementById('pdfMarginBottom').value)||2.54,
+                marginLeftCm:parseFloat(document.getElementById('pdfMarginLeft').value)||2.54,
+                marginRightCm:parseFloat(document.getElementById('pdfMarginRight').value)||2.54,
+                printBackground:document.getElementById('pdfPrintBackground').checked
+            };
+            const policy={
+                pageSize:document.getElementById('pdfLockPageSize').checked,
+                orientation:document.getElementById('pdfLockOrientation').checked,
+                margins:document.getElementById('pdfLockMargins').checked,
+                printBackground:document.getElementById('pdfLockPrintBackground').checked
+            };
+            const res=await authFetch('/api/settings/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,policy})});
+            if(res.ok){const locked=Object.values(policy).filter(Boolean).length;showStatus('pdfStatus','PDF settings saved.'+(locked?` ${locked} field(s) admin-controlled.`:''),true);}
+            else{const d=await res.json().catch(()=>({}));showStatus('pdfStatus',d.error||`Save failed (${res.status})`,false);}
+        }catch(e){showStatus('pdfStatus','Save failed: '+e.message,false);}
+        finally{btn.disabled=false;}
+    }
+    function resetWordMargins(){['pdfMarginTop','pdfMarginBottom','pdfMarginLeft','pdfMarginRight'].forEach(id=>document.getElementById(id).value='2.54');}
+
+    // ── PDF Engine ─────────────────────────────────────────────────────────────
+    async function loadEngine(){
+        try{
+            const res=await authFetch('/api/settings/pdf/engine');if(!res.ok)return;
+            const e=await res.json();
+            document.getElementById('engEngine').textContent=e.engine||'—';
+            document.getElementById('engPuppeteer').textContent=e.puppeteerVersion||'—';
+            document.getElementById('engCurrent').textContent=e.currentBuild||'—';
+            document.getElementById('engInstalled').textContent=(e.installedBuilds&&e.installedBuilds.length)?e.installedBuilds.join(', '):'(none)';
+            document.getElementById('engCacheDir').textContent=e.cacheDir||'—';
+        }catch{}
+    }
+    async function updateEngine(){
+        const btn=document.getElementById('engUpdateBtn');btn.disabled=true;
+        showStatus('engStatus','Downloading the latest Chromium build… this can take a minute.',true);
+        try{
+            const res=await authFetch('/api/settings/pdf/engine/update',{method:'POST'});
+            const d=await res.json().catch(()=>({}));
+            if(res.ok){showStatus('engStatus','Engine updated. Current build: '+d.currentBuild,true);loadEngine();}
+            else{showStatus('engStatus',d.error||`Update failed (${res.status})`,false);}
+        }catch(e){showStatus('engStatus','Update failed: '+e.message,false);}
+        finally{btn.disabled=false;}
+    }
+
+    // ── Folder picker (Browse for Projects Root) ────────────────────────────────
+    let _fpDirs=[],_fpParent=null,_fpCurrent=null;
+    async function openFolderPicker(){
+        document.getElementById('folderPicker').style.display='flex';
+        const seed=document.getElementById('projectsRoot').value.trim();
+        await fpBrowse(seed||null);
+    }
+    function closeFolderPicker(){document.getElementById('folderPicker').style.display='none';}
+    async function fpBrowse(path){
+        let res;
+        try{res=await authFetch('/api/settings/browse'+(path?('?path='+encodeURIComponent(path)):''));}
+        catch{return;}
+        if(!res.ok){ if(path){return fpBrowse(null);} return; }
+        const data=await res.json();
+        _fpCurrent=data.current;_fpParent=data.parent;_fpDirs=data.dirs||[];
+        document.getElementById('fpCurrent').textContent=data.current||'(drives)';
+        let html='';
+        if(_fpCurrent)html+=`<div class="fp-item" onclick="fpUp()">⬆ ..</div>`;
+        _fpDirs.forEach((d,i)=>{html+=`<div class="fp-item" onclick="fpEnter(${i})">📁 ${escapeHtml(d.name)}</div>`;});
+        if(!_fpDirs.length&&_fpCurrent)html+=`<div style="color:#999;padding:10px">No subfolders</div>`;
+        document.getElementById('fpList').innerHTML=html;
+    }
+    function fpUp(){fpBrowse(_fpParent||null);}
+    function fpEnter(i){const d=_fpDirs[i];if(d)fpBrowse(d.path);}
+    function chooseCurrentFolder(){if(_fpCurrent)document.getElementById('projectsRoot').value=_fpCurrent;closeFolderPicker();}
+
+    // ── Log Retention ──────────────────────────────────────────────────────────
+    async function loadRetention(){
+        try{const r=await(await authFetch('/api/logs/retention')).json();document.getElementById('retMaxEntries').value=r.maxEntries??1000;document.getElementById('retRetainDays').value=r.retainDays??30;}catch{}
+    }
+    document.getElementById('retSaveBtn').onclick=async()=>{
+        const maxEntries=parseInt(document.getElementById('retMaxEntries').value,10)||1000;
+        const retainDays=parseInt(document.getElementById('retRetainDays').value,10)||0;
+        const btn=document.getElementById('retSaveBtn');btn.disabled=true;
+        try{
+            const res=await authFetch('/api/logs/retention',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({maxEntries,retainDays})});
+            if(res.ok){const r=await res.json();document.getElementById('retMaxEntries').value=r.maxEntries;document.getElementById('retRetainDays').value=r.retainDays;showStatus('retStatus',`Retention saved: max ${r.maxEntries} entries, ${r.retainDays===0?'keep forever':r.retainDays+' days'}`,true);}
+            else{const b=await res.json().catch(()=>({}));showStatus('retStatus',b.error||`Save failed (${res.status})`,false);}
+        }catch(err){showStatus('retStatus','Save failed: '+err.message,false);}
+        finally{btn.disabled=false;}
+    };
+
+    // ── Log Table ──────────────────────────────────────────────────────────────
+    let _filterTimer=null;
+    function scheduleLogFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(loadLogs,400);}
+    function clearFilters(){['filterLevel','filterSearch','filterFrom','filterTo'].forEach(id=>document.getElementById(id).value='');loadLogs();}
+    async function loadLogs(){
+        const level=document.getElementById('filterLevel').value,search=document.getElementById('filterSearch').value.trim(),
+              from=document.getElementById('filterFrom').value,to=document.getElementById('filterTo').value;
+        const p=new URLSearchParams();
+        if(level)p.set('level',level);if(search)p.set('search',search);
+        if(from)p.set('from',from+'T00:00:00');if(to)p.set('to',to+'T23:59:59');
+        try{const rows=await(await authFetch('/api/logs?'+p)).json();renderLogTable(rows);}catch{}
+    }
+    function levelBadge(level){
+        const cls={success:'lvl-success',warning:'lvl-warning',error:'lvl-error',info:'lvl-info'}[level?.toLowerCase()]??'lvl-info';
+        const icon={success:'✅',warning:'⚠️',error:'❌',info:'ℹ️'}[level?.toLowerCase()]??'';
+        return `<span class="lvl-badge ${cls}">${icon} ${escapeHtml(level)}</span>`;
+    }
+    function fmtTs(iso){try{return new Date(iso).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});}catch{return iso;}}
+    function renderLogTable(rows){
+        const tbody=document.getElementById('logBody');
+        document.getElementById('logCount').textContent=rows.length>0?`(${rows.length})`:'';
+        if(rows.length===0){tbody.innerHTML=`<tr><td colspan="6" class="log-empty">No log entries match the current filters.</td></tr>`;return;}
+        tbody.innerHTML=rows.map(r=>{
+            const atts=(r.attachments||[]).map(a=>escapeHtml(a)).join('<br/>');
+            return `<tr${r.errorDetail?` title="${escapeHtml(r.errorDetail)}"`:''}>
+                <td class="ts">${escapeHtml(fmtTs(r.timestamp))}</td><td>${levelBadge(r.level)}</td>
+                <td>${escapeHtml(r.username||'—')}</td>
+                <td style="direction:rtl;text-align:right">${escapeHtml(r.subject||'—')}</td>
+                <td class="att">${atts||'—'}</td>
+                <td${r.projectName?` title="${escapeHtml(r.projectName)}"`:''} >${escapeHtml(r.projectId||'—')}</td></tr>`;
+        }).join('');
+    }
+    async function clearLogs(){
+        if(!confirm('Clear all log entries? This cannot be undone.'))return;
+        try{await authFetch('/api/logs',{method:'DELETE'});renderLogTable([]);document.getElementById('logCount').textContent='';}catch{}
+    }
+    async function exportCsv(){
+        const level=document.getElementById('filterLevel').value,search=document.getElementById('filterSearch').value.trim(),
+              from=document.getElementById('filterFrom').value,to=document.getElementById('filterTo').value;
+        const p=new URLSearchParams();
+        if(level)p.set('level',level);if(search)p.set('search',search);
+        if(from)p.set('from',from+'T00:00:00');if(to)p.set('to',to+'T23:59:59');
+        const btn=document.getElementById('exportCsvBtn');btn.disabled=true;
+        try{
+            const res=await authFetch('/api/logs/export?'+p);
+            if(!res.ok){alert('Export failed: '+res.status);return;}
+            const blob=await res.blob(),a=document.createElement('a');
+            a.href=URL.createObjectURL(blob);
+            const m=(res.headers.get('Content-Disposition')||'').match(/filename="?([^";]+)"?/i);
+            a.download=m?m[1]:'saveas-logs.csv';
+            document.body.appendChild(a);a.click();
+            setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);
+        }catch(e){alert('Export failed: '+e.message);}
+        finally{btn.disabled=false;}
+    }
+
+    // ── Live SSE ───────────────────────────────────────────────────────────────
+    let _eventSource=null,_liveOn=true;
+    function toggleLive(){_liveOn=!_liveOn;document.getElementById('liveBadge').classList.toggle('on',_liveOn);if(_liveOn)startLive();else stopLive();}
+    function startLive(){
+        stopLive();if(!_token)return;
+        _eventSource=new EventSource(`/api/logs/stream?token=${encodeURIComponent(_token)}`);
+        _eventSource.onmessage=e=>{try{prependLogRow(JSON.parse(e.data));}catch{}};
+        _eventSource.onerror=()=>{if(!_token)stopLive();};
+    }
+    function stopLive(){if(_eventSource){_eventSource.close();_eventSource=null;}}
+    function prependLogRow(r){
+        const tbody=document.getElementById('logBody');
+        const empty=tbody.querySelector('.log-empty');if(empty)empty.parentElement.remove();
+        const level=document.getElementById('filterLevel').value,search=document.getElementById('filterSearch').value.trim().toLowerCase();
+        if(level&&r.level?.toLowerCase()!==level)return;
+        if(search&&![r.username,r.subject,r.projectId,...(r.attachments||[])].some(v=>(v||'').toLowerCase().includes(search)))return;
+        const tr=document.createElement('tr');if(r.errorDetail)tr.title=r.errorDetail;
+        tr.innerHTML=`<td class="ts">${escapeHtml(fmtTs(r.timestamp))}</td><td>${levelBadge(r.level)}</td>
+            <td>${escapeHtml(r.username||'—')}</td><td style="direction:rtl;text-align:right">${escapeHtml(r.subject||'—')}</td>
+            <td class="att">${(r.attachments||[]).map(a=>escapeHtml(a)).join('<br/>')||'—'}</td>
+            <td${r.projectName?` title="${escapeHtml(r.projectName)}"`:''} >${escapeHtml(r.projectId||'—')}</td>`;
+        tr.style.background='#fffbe6';setTimeout(()=>{tr.style.background='';},2500);
+        tbody.insertBefore(tr,tbody.firstChild);
+        const n=tbody.querySelectorAll('tr').length;document.getElementById('logCount').textContent=n>0?`(${n})`:'';
+    }
+
+    // ── Bootstrap ──────────────────────────────────────────────────────────────
+    initSession().then(()=>{if(_token){loadAll();startLive();}});
+    </script>
+</body>
+</html>

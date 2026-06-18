@@ -40,11 +40,24 @@ Office.onReady(() => {
     // Settings panel
     document.getElementById("openSettingsBtn").onclick = openSettingsPanel;
 
+    // About panel
+    document.getElementById("aboutBtn").onclick      = openAboutPanel;
+    document.getElementById("aboutCloseBtn").onclick = closeAboutPanel;
+
+    // Pin support — when pinned, auto-reload email data on item change
+    if (Office.context.mailbox.addHandlerAsync) {
+        Office.context.mailbox.addHandlerAsync(
+            Office.EventType.ItemChanged,
+            () => { if (Office.context.mailbox.item) loadCurrentItem(); },
+            () => {}
+        );
+    }
+
     // Help link → /help on the backend, forced into the user's default browser.
     // window.open with _blank is what Outlook routes to the system shell.
     const helpLink = document.getElementById("helpLink");
     if (helpLink) {
-        const helpUrl = `${BACKEND_BASE}/help`;
+        const helpUrl = `${BACKEND_BASE}/help/index.html`;
         helpLink.href = helpUrl;
         helpLink.onclick = (e) => {
             e.preventDefault();
@@ -103,7 +116,81 @@ Office.onReady(() => {
     fetchAdminPolicy();         // populates _adminPolicy, then re-applies prefs
     checkAdminAccess();         // shows admin link if user is in the admin AD group
     startBackendHealthCheck();
+
+    // Pinned task panes stay open across messages instead of reloading the
+    // page, so we must detect message changes ourselves and refresh the UI.
+    registerItemChangedHandler();
 });
+
+// =====================================================================
+// Item-changed handling (required for pinned task panes — see manifest.json
+// "pinnable": true). When the pane isn't pinned, Outlook simply reloads the
+// page on message switch and this handler is a harmless no-op in practice;
+// when it IS pinned, the page survives across messages and every piece of
+// per-message state must be reset and reloaded from scratch.
+// =====================================================================
+function registerItemChangedHandler() {
+    if (typeof Office?.context?.mailbox?.addHandlerAsync !== "function") return;
+    Office.context.mailbox.addHandlerAsync(
+        Office.EventType.ItemChanged,
+        reloadForCurrentItem,
+        (r) => {
+            if (r.status !== Office.AsyncResultStatus.Succeeded) {
+                console.warn("Failed to register ItemChanged handler:", r.error);
+            }
+        }
+    );
+}
+
+// Re-reads everything that depends on the message currently shown in the
+// pane. Mirrors the per-item initialization done in Office.onReady.
+function reloadForCurrentItem() {
+    // Close overlays — they may be showing data tied to the previous message
+    closeSettingsPanel();
+    closeContactPicker();
+    hideFolderContextMenu();
+
+    // Reset project fields (will be re-populated by tryRestoreProjectInfo
+    // from the new item's custom properties, or by the user)
+    const idInput     = document.getElementById("projectId");
+    const nameInput   = document.getElementById("projectName");
+    const leaderInput = document.getElementById("projectLeader");
+    idInput.value     = "";
+    nameInput.value   = "";
+    leaderInput.value = "";
+    delete leaderInput.dataset.email;
+
+    // Reset employees list
+    _employees.length = 0;
+    renderEmployees();
+
+    // Reset folder tree / destination banner back to "no project loaded" state
+    _folderTree         = null;
+    _treeProjectNumber  = "";
+    _selectedFolderPath = "";
+    document.getElementById("folderTree").innerHTML =
+        `<div style="color:#888;font-size:13px;padding:10px 0">הזן מספר פרויקט כדי לטעון את עץ התיקיות</div>`;
+    updateDestBanner();
+
+    // Hide the saved-message info card until the new item's metadata is read
+    renderSavedInfo(null);
+
+    // Clear status / progress indicators left over from the previous message
+    document.getElementById("status").innerText = "";
+    document.getElementById("uploadProgress").style.display = "none";
+
+    // Reload data scoped to the new message
+    loadAttachments();
+    tryRestoreProjectInfo();
+
+    // Re-apply preference defaults (stamp / category / forward-to-leader…)
+    applyPrefsToCheckboxes();
+    updateCategoryLabel();
+
+    // Auto-set current user as project leader if that setting is enabled
+    // and the new message doesn't already have one
+    applyAddSelf();
+}
 
 // =====================================================================
 // Backend health check — polls /api/info; shows a red banner when down
@@ -476,7 +563,8 @@ const PREFS_KEY = "saveAsPdfPrefs";
 const DEFAULT_PREFS = {
     defaultStamp:    true,
     stampFields:     { projectId: true, projectName: true, leader: true, date: true,
-                       user: true, employees: true, attachments: true },
+                       user: true, employees: true, attachments: true,
+                       from: true, to: true, cc: true, sent: true, received: true, subject: true },
     stampNotes:      "",
     stampTemplate:   "",
     defaultCategory: true,
@@ -490,6 +578,16 @@ const DEFAULT_PREFS = {
         list:       ["מכתבים", "התקבל", "אישור ציוד"],
         selected:   "",      // "" = no default sub-folder
         appendDate: false    // append today's date as inner sub-folder
+    },
+    // PDF output settings the user may control (subject to admin lock policy).
+    pdf: {
+        pageSize:        "A4",     // A4 | Letter | Legal | A3
+        landscape:       false,
+        marginTopCm:     2.54,
+        marginBottomCm:  2.54,
+        marginLeftCm:    2.54,
+        marginRightCm:   2.54,
+        printBackground: true
     }
 };
 
@@ -504,6 +602,7 @@ function loadPrefs() {
             ...raw,
             stampFields:  { ...DEFAULT_PREFS.stampFields,  ...(raw.stampFields  || {}) },
             folderNaming: { ...DEFAULT_PREFS.folderNaming, ...(raw.folderNaming || {}) },
+            pdf:          { ...DEFAULT_PREFS.pdf,          ...(raw.pdf          || {}) },
             defaultSubfolders: {
                 ...DEFAULT_PREFS.defaultSubfolders,
                 ...(raw.defaultSubfolders || {}),
@@ -527,6 +626,8 @@ function savePrefs() {
 let _adminPolicy = {};
 // Attachment policy: { sigImgThreshold: number|null }  null = user controls
 let _adminAttachmentPolicy = {};
+// PDF policy + admin defaults: { settings: {...}, policy: { pageSize, orientation, margins, printBackground } }
+let _adminPdf = { settings: {}, policy: {} };
 
 // Mapping from policy key -> taskpane checkbox id (used to lock the UI).
 const POLICY_FIELD_MAP = {
@@ -537,7 +638,13 @@ const POLICY_FIELD_MAP = {
     includeDate:         "spFieldDate",
     includeUser:         "spFieldUser",
     includeEmployees:    "spFieldEmployees",
-    includeAttachments:  "spFieldAttachments"
+    includeAttachments:  "spFieldAttachments",
+    includeFrom:         "spFieldFrom",
+    includeTo:           "spFieldTo",
+    includeCc:           "spFieldCc",
+    includeSent:         "spFieldSent",
+    includeReceived:     "spFieldReceived",
+    includeSubject:      "spFieldSubject"
 };
 
 async function checkAdminAccess() {
@@ -561,6 +668,7 @@ async function fetchAdminPolicy() {
         const body = await res.json();
         _adminPolicy           = body.stamp      || {};
         _adminAttachmentPolicy = body.attachment || {};
+        _adminPdf              = body.pdf        || { settings: {}, policy: {} };
         applyPrefsToCheckboxes();
         loadAttachments(); // re-filter with the now-known admin threshold
     } catch { /* backend may be down — fall back to user prefs only */ }
@@ -682,6 +790,12 @@ function openSettingsPanel() {
     document.getElementById("spFieldUser").checked        = !!_prefs.stampFields.user;
     document.getElementById("spFieldEmployees").checked   = !!_prefs.stampFields.employees;
     document.getElementById("spFieldAttachments").checked = !!_prefs.stampFields.attachments;
+    document.getElementById("spFieldFrom").checked        = !!_prefs.stampFields.from;
+    document.getElementById("spFieldTo").checked          = !!_prefs.stampFields.to;
+    document.getElementById("spFieldCc").checked          = !!_prefs.stampFields.cc;
+    document.getElementById("spFieldSent").checked        = !!_prefs.stampFields.sent;
+    document.getElementById("spFieldReceived").checked    = !!_prefs.stampFields.received;
+    document.getElementById("spFieldSubject").checked     = !!_prefs.stampFields.subject;
     document.getElementById("spStampNotes").value        = _prefs.stampNotes || "";
     document.getElementById("spStampTemplate").value     = _prefs.stampTemplate || "";
 
@@ -724,8 +838,51 @@ function openSettingsPanel() {
     hideNewCategoryForm();
     populateCategoryList();
 
+    // PDF settings
+    const pdf = _prefs.pdf || DEFAULT_PREFS.pdf;
+    document.getElementById("spPdfPageSize").value = pdf.pageSize || "A4";
+    (document.querySelector(`input[name="spPdfOrientation"][value="${pdf.landscape ? "landscape" : "portrait"}"]`) || {}).checked = true;
+    document.getElementById("spPdfMarginTop").value    = Number(pdf.marginTopCm    ?? 2.54).toFixed(2);
+    document.getElementById("spPdfMarginBottom").value = Number(pdf.marginBottomCm ?? 2.54).toFixed(2);
+    document.getElementById("spPdfMarginLeft").value   = Number(pdf.marginLeftCm   ?? 2.54).toFixed(2);
+    document.getElementById("spPdfMarginRight").value  = Number(pdf.marginRightCm  ?? 2.54).toFixed(2);
+    document.getElementById("spPdfPrintBackground").checked = pdf.printBackground !== false;
+
     // Locks any fields the admin has forced (must run after the inputs are populated).
     applyPolicyLocks();
+    applyPdfPolicyLocks();
+}
+
+// Disable PDF controls the admin has locked, showing the admin's forced value.
+function applyPdfPolicyLocks() {
+    const pol = _adminPdf?.policy   || {};
+    const adm = _adminPdf?.settings || {};
+
+    const ps = document.getElementById("spPdfPageSize");
+    if (pol.pageSize) { if (adm.pageSize) ps.value = adm.pageSize; ps.disabled = true; }
+    else ps.disabled = false;
+
+    const oRadios = document.querySelectorAll('input[name="spPdfOrientation"]');
+    if (pol.orientation) {
+        const el = document.querySelector(`input[name="spPdfOrientation"][value="${adm.landscape ? "landscape" : "portrait"}"]`);
+        if (el) el.checked = true;
+        oRadios.forEach(r => r.disabled = true);
+    } else oRadios.forEach(r => r.disabled = false);
+
+    const mIds  = ["spPdfMarginTop", "spPdfMarginBottom", "spPdfMarginLeft", "spPdfMarginRight"];
+    const mVals = [adm.marginTopCm, adm.marginBottomCm, adm.marginLeftCm, adm.marginRightCm];
+    mIds.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (pol.margins) { if (mVals[i] != null) el.value = Number(mVals[i]).toFixed(2); el.disabled = true; }
+        else el.disabled = false;
+    });
+
+    const pb = document.getElementById("spPdfPrintBackground");
+    if (pol.printBackground) { pb.checked = adm.printBackground !== false; pb.disabled = true; }
+    else pb.disabled = false;
+
+    const anyLocked = !!(pol.pageSize || pol.orientation || pol.margins || pol.printBackground);
+    document.getElementById("spPdfLockNote").style.display = anyLocked ? "block" : "none";
 }
 
 function closeSettingsPanel() {
@@ -742,7 +899,13 @@ function saveSettingsPanel() {
         date:        document.getElementById("spFieldDate").checked,
         user:        document.getElementById("spFieldUser").checked,
         employees:   document.getElementById("spFieldEmployees").checked,
-        attachments: document.getElementById("spFieldAttachments").checked
+        attachments: document.getElementById("spFieldAttachments").checked,
+        from:        document.getElementById("spFieldFrom").checked,
+        to:          document.getElementById("spFieldTo").checked,
+        cc:          document.getElementById("spFieldCc").checked,
+        sent:        document.getElementById("spFieldSent").checked,
+        received:    document.getElementById("spFieldReceived").checked,
+        subject:     document.getElementById("spFieldSubject").checked
     };
     _prefs.stampNotes      = document.getElementById("spStampNotes").value.trim();
     _prefs.stampTemplate   = document.getElementById("spStampTemplate").value.trim();
@@ -767,6 +930,19 @@ function saveSettingsPanel() {
         list:       _spSubfolderList.slice(),
         selected:   _spSubfolderSelected,
         appendDate: document.getElementById("spSubfolderAppendDate").checked
+    };
+
+    // PDF settings (admin-locked fields are disabled; reading them is harmless —
+    // the server re-forces locked fields from the admin policy on save).
+    const clampCm = v => Math.max(0.5, Math.min(10, parseFloat(v) || 2.54));
+    _prefs.pdf = {
+        pageSize:        document.getElementById("spPdfPageSize").value || "A4",
+        landscape:       document.querySelector('input[name="spPdfOrientation"]:checked')?.value === "landscape",
+        marginTopCm:     clampCm(document.getElementById("spPdfMarginTop").value),
+        marginBottomCm:  clampCm(document.getElementById("spPdfMarginBottom").value),
+        marginLeftCm:    clampCm(document.getElementById("spPdfMarginLeft").value),
+        marginRightCm:   clampCm(document.getElementById("spPdfMarginRight").value),
+        printBackground: document.getElementById("spPdfPrintBackground").checked
     };
 
     savePrefs();
@@ -1174,6 +1350,119 @@ const dlgPrompt  = (title, defaultValue, okLabel) => dlg({ title, input: true, d
 const dlgConfirm = (title, message, okLabel)      => dlg({ title, message, okLabel });
 const dlgAlert   = (title, message)               => dlg({ title, message, hideCancel: true, okLabel: "סגור" });
 
+// Show a folder path in a selectable text input with a Copy button.
+// Falls back to document.execCommand('copy') which works without clipboard permissions.
+function dlgPath(path) {
+    return new Promise(resolve => {
+        const bd     = document.getElementById("modalBackdrop");
+        const titleE = document.getElementById("modalTitle");
+        const msgE   = document.getElementById("modalMsg");
+        const inp    = document.getElementById("modalInput");
+        const ok     = document.getElementById("modalOk");
+        const cancel = document.getElementById("modalCancel");
+
+        titleE.textContent    = "נתיב התיקייה";
+        msgE.style.display    = "none";
+        inp.style.display     = "block";
+        inp.value             = path;
+        inp.readOnly          = true;
+        inp.style.direction   = "ltr";
+        inp.style.textAlign   = "left";
+
+        ok.textContent        = "📋 העתק";
+        cancel.textContent    = "סגור";
+        cancel.style.display  = "inline-block";
+
+        bd.style.display = "flex";
+        setTimeout(() => { inp.focus(); inp.select(); }, 50);
+
+        const close = () => {
+            inp.readOnly       = false;
+            inp.style.direction  = "";
+            inp.style.textAlign  = "";
+            bd.style.display   = "none";
+            ok.onclick = cancel.onclick = inp.onkeydown = null;
+            resolve();
+        };
+
+        ok.onclick = () => {
+            inp.select();
+            try { document.execCommand("copy"); } catch {}
+            const orig = ok.textContent;
+            ok.textContent = "✓ הועתק!";
+            setTimeout(() => { ok.textContent = orig; }, 1400);
+        };
+        cancel.onclick = close;
+        inp.onkeydown  = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+    });
+}
+
+// Convert a Windows path to a file:// URL the browser can follow.
+//   \\FS01\jobs\24  -> file://FS01/jobs/24
+//   C:\Apps\X       -> file:///C:/Apps/X
+function fileUrlFromPath(p) {
+    if (!p) return "";
+    const s = String(p);
+    if (s.startsWith("\\\\")) return "file://" + s.replace(/^\\+/, "").replace(/\\/g, "/");
+    return "file:///" + s.replace(/\\/g, "/");
+}
+
+// Popup that shows the folder as a clickable link the user opens themselves.
+// The backend runs as a service and can't open Explorer in the user's session,
+// and window.open("file://…") is blocked in WebView2 — so we hand the user a
+// real <a href="file://…"> link (plus a Copy-path fallback if the link is
+// blocked by their Outlook/WebView2 policy).
+function dlgFolderLink(path) {
+    return new Promise(resolve => {
+        const bd     = document.getElementById("modalBackdrop");
+        const titleE = document.getElementById("modalTitle");
+        const msgE   = document.getElementById("modalMsg");
+        const inp    = document.getElementById("modalInput");
+        const ok     = document.getElementById("modalOk");
+        const cancel = document.getElementById("modalCancel");
+
+        const url = fileUrlFromPath(path);
+        titleE.textContent = "פתיחת תיקייה";
+        msgE.style.display = "block";
+        msgE.innerHTML =
+            "לחצו על הקישור לפתיחת התיקייה בסייר הקבצים:" +
+            '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" ' +
+            'style="display:block;margin-top:8px;color:#0078d4;direction:ltr;text-align:left;word-break:break-all">' +
+            "📂 " + escHtml(path) + "</a>" +
+            '<div style="margin-top:8px;font-size:11px;color:#888">' +
+            "אם הקישור אינו נפתח, השתמשו ב«העתק נתיב» והדביקו בסייר הקבצים.</div>";
+
+        inp.style.display = "none";
+
+        ok.textContent       = "📋 העתק נתיב";
+        cancel.textContent   = "סגור";
+        cancel.style.display  = "inline-block";
+
+        bd.style.display = "flex";
+
+        const close = () => {
+            bd.style.display = "none";
+            msgE.innerHTML   = "";
+            ok.onclick = cancel.onclick = null;
+            resolve();
+        };
+
+        ok.onclick = () => {
+            const ta = document.createElement("textarea");
+            ta.value = path;
+            ta.style.cssText = "position:fixed;opacity:0;top:0;left:0";
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand("copy"); } catch {}
+            document.body.removeChild(ta);
+            const orig = ok.textContent;
+            ok.textContent = "✓ הועתק!";
+            setTimeout(() => { ok.textContent = orig; }, 1400);
+        };
+        cancel.onclick = close;
+    });
+}
+
 // =====================================================================
 // Project folder tree (in the third tab)
 // =====================================================================
@@ -1341,17 +1630,19 @@ function setupFolderContextMenu() {
     });
 }
 
-// ---------- Open folder in Windows Explorer ----------
-function doOpenFolder(node) {
+// ---------- Open folder for the user ----------
+// The backend runs as a Windows service and cannot open Explorer in the user's
+// interactive session, so we present a clickable folder link (with a copy-path
+// fallback) the user opens themselves.
+function openFolderForUser(fullPath) {
+    return dlgFolderLink(fullPath);
+}
+
+async function doOpenFolder(node) {
     if (!_folderRootPath) return;
     const rel  = node.path ? node.path.replace(/\//g, "\\") : "";
     const full = rel ? _folderRootPath.replace(/[\\\/]+$/, "") + "\\" + rel : _folderRootPath;
-    // Ask the backend to open explorer.exe — window.open(file://) is blocked in Outlook's WebView
-    fetch(`${BACKEND_BASE}/api/open-folder`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ path: full })
-    }).catch(e => console.warn("[SaveAsPDF] open-folder failed:", e));
+    await openFolderForUser(full);
 }
 
 // ---------- Folder name suggestion (per settings) ----------
@@ -1662,6 +1953,7 @@ async function onSaveAsPdf() {
         status.innerText = "שולח נתונים לשרת…";
         const result = await sendToBackend({
             projectId, projectName, projectLeader,
+            savedBy:   getCurrentUserDisplay(),
             employees: _employees,
             email: mailData.email,
             attachments: mailData.attachments,
@@ -1674,13 +1966,22 @@ async function onSaveAsPdf() {
                 includeUser:        !!_prefs.stampFields?.user,
                 includeEmployees:   !!_prefs.stampFields?.employees,
                 includeAttachments: !!_prefs.stampFields?.attachments,
+                includeFrom:        !!_prefs.stampFields?.from,
+                includeTo:          !!_prefs.stampFields?.to,
+                includeCc:          !!_prefs.stampFields?.cc,
+                includeSent:        !!_prefs.stampFields?.sent,
+                includeReceived:    !!_prefs.stampFields?.received,
+                includeSubject:     !!_prefs.stampFields?.subject,
                 notes:              _prefs.stampNotes || "",
                 template:           _prefs.stampTemplate || "",
                 forwarded:          willForward,
                 forwardedTo:        willForward ? stripEmail(projectLeader) : "",
                 userName:           getCurrentUserDisplay(),
                 attachmentNames:    mailData.allAttachmentNames || []
-            } : null
+            } : null,
+            // User-chosen PDF output settings; the server merges these with the
+            // admin lock policy (locked fields are forced server-side).
+            pdfSettings: _prefs.pdf || DEFAULT_PREFS.pdf
         });
 
         // Surface PDF generation outcome (server may have fallen back to .html)
@@ -1692,10 +1993,12 @@ async function onSaveAsPdf() {
             );
         }
 
+        const savedAttachmentNames = (mailData.attachments || []).map(a => a.name);
+
         const warnings = await markMessageProcessed(
             Office.context.mailbox.item,
             projectId, projectName, projectLeader,
-            result, doStamp, doCategory
+            result, doStamp, doCategory, savedAttachmentNames
         );
 
         // Dispatch: forward to project leader if requested
@@ -1714,6 +2017,18 @@ async function onSaveAsPdf() {
         const savedName = result?.pdf?.fileName || "";
         const saveDir   = result?.project?.saveDir || result?.project?.fullName || "";
 
+        // Show the "already saved" info card straight away (mirrors what the user
+        // will see next time this message is opened).
+        renderSavedInfo({
+            processed:   "true",
+            projectId,
+            projectName,
+            dateIso:     new Date().toISOString(),
+            folder:      saveDir,
+            file:        savedName,
+            attachments: savedAttachmentNames
+        });
+
         if (warnings.length > 0) {
             await dlgAlert("ההודעה נשמרה — חלק מהפעולות לא בוצעו",
                 warnings.map(w => "• " + w).join("\n"));
@@ -1729,19 +2044,13 @@ async function onSaveAsPdf() {
 
         if (saveDir) {
             const openBtn = document.createElement("button");
-            openBtn.type      = "button";
-            openBtn.title     = saveDir;
+            openBtn.type        = "button";
+            openBtn.title       = saveDir;
             openBtn.textContent = "📂";
             openBtn.style.cssText =
                 "margin-right:8px;margin-top:0;padding:2px 7px;font-size:13px;" +
                 "border-radius:4px;cursor:pointer;vertical-align:middle";
-            openBtn.onclick = () => {
-                const slash = saveDir.replace(/\\/g, "/");
-                const url   = slash.startsWith("//")
-                    ? "file:" + slash        // UNC  \\server\share → file://server/share
-                    : "file:///" + slash;    // local C:\... → file:///C:/...
-                window.open(url, "_blank", "noopener");
-            };
+            openBtn.onclick = () => openFolderForUser(saveDir);
             status.appendChild(openBtn);
         }
     } catch (err) {
@@ -1819,8 +2128,29 @@ async function collectMailData() {
         .filter(a => !a.isInline)
         .map(a => a.name);
 
+    // "Name <email>" when a display name is available, otherwise the bare address.
+    const fmtAddr = (a) => {
+        if (!a) return "";
+        const email = a.emailAddress || "";
+        const name  = (a.displayName || "").trim();
+        return name && name !== email ? `${name} <${email}>` : email;
+    };
+    const fmtList = (arr) => (arr || []).map(fmtAddr).filter(Boolean);
+
+    // Read-mode Outlook exposes the sent time as dateTimeCreated.
+    const sentDate = item.dateTimeCreated
+        ? new Date(item.dateTimeCreated).toISOString()
+        : null;
+
     return {
-        email: { subject: item.subject, from: item.from?.emailAddress || "", bodyHtml },
+        email: {
+            subject:  item.subject,
+            from:     fmtAddr(item.from) || item.from?.emailAddress || "",
+            to:       fmtList(item.to),
+            cc:       fmtList(item.cc),
+            sentDate,
+            bodyHtml
+        },
         attachments,
         allAttachmentNames
     };
@@ -1891,7 +2221,7 @@ function sendToBackend(payload) {
 //   1. notificationMessages.addAsync - visible info banner pinned to the email
 //   2. loadCustomPropertiesAsync     - invisible machine-readable metadata
 //   3. categories.addAsync           - best-effort (may be denied without elevated perm)
-async function markMessageProcessed(item, projectId, projectName, projectLeader, result, doStamp, doCategory) {
+async function markMessageProcessed(item, projectId, projectName, projectLeader, result, doStamp, doCategory, savedAttachmentNames = []) {
     const warnings = [];
     const dateStr  = new Date().toLocaleString("he-IL");
 
@@ -1910,6 +2240,9 @@ async function markMessageProcessed(item, projectId, projectName, projectLeader,
                     props.set("saveAsPdfProjectId",     projectId || "");
                     props.set("saveAsPdfProjectName",   projectName || "");
                     props.set("saveAsPdfProjectLeader", projectLeader || "");
+                    props.set("saveAsPdfFolder",        result?.project?.saveDir || result?.project?.fullName || "");
+                    props.set("saveAsPdfFile",          result?.pdf?.fileName || "");
+                    props.set("saveAsPdfAttachments",   JSON.stringify(savedAttachmentNames || []));
                     props.set("saveAsPdfDate",          new Date().toISOString());
                     props.saveAsync(r2 => {
                         if (r2.status !== Office.AsyncResultStatus.Succeeded) {
@@ -2085,10 +2418,16 @@ function tryRestoreProjectInfo() {
 
     item.loadCustomPropertiesAsync(r => {
         if (r.status !== Office.AsyncResultStatus.Succeeded) return;
-        const props  = r.value;
-        const id     = props.get("saveAsPdfProjectId");
-        const name   = props.get("saveAsPdfProjectName");
-        const leader = props.get("saveAsPdfProjectLeader");
+        const props    = r.value;
+        const id       = props.get("saveAsPdfProjectId");
+        const name     = props.get("saveAsPdfProjectName");
+        const leader   = props.get("saveAsPdfProjectLeader");
+        const folder   = props.get("saveAsPdfFolder");
+        const file     = props.get("saveAsPdfFile");
+        const dateIso  = props.get("saveAsPdfDate");
+        const processed = props.get("saveAsPdfProcessed");
+        let   atts     = [];
+        try { atts = JSON.parse(props.get("saveAsPdfAttachments") || "[]"); } catch { atts = []; }
 
         if (id)   document.getElementById("projectId").value   = id;
         if (name) document.getElementById("projectName").value = name;
@@ -2102,7 +2441,69 @@ function tryRestoreProjectInfo() {
                 : leader;
             input.dataset.email = email;
         }
+
+        renderSavedInfo({
+            processed, projectId: id, projectName: name,
+            dateIso, folder, file, attachments: atts
+        });
     });
+}
+
+// Format an ISO timestamp as "dd.MM.yyyy HH:mm" (Israeli display order).
+function formatSavedDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()} ` +
+           `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+// Render (or hide) the "this message was already saved" info card. Mirrors the
+// summary the user previously saw stamped into saved messages: project number,
+// name, update date, and clickable links that open the destination folder —
+// same behavior as the attachment links.
+function renderSavedInfo(info) {
+    const card = document.getElementById("savedInfo");
+    const body = document.getElementById("savedInfoBody");
+    if (!card || !body) return;
+
+    const isSaved = info && (info.processed === "true" || info.folder || info.projectId);
+    if (!isSaved) { card.style.display = "none"; body.innerHTML = ""; return; }
+
+    const dateStr = formatSavedDate(info.dateIso);
+    const folder  = info.folder || "";
+    const fAttr   = escHtml(folder);
+
+    let html = "";
+    if (info.projectId)   html += `<div class="si-row"><span class="si-label">מס' פרויקט:</span> <b>${escHtml(info.projectId)}</b></div>`;
+    if (info.projectName) html += `<div class="si-row"><span class="si-label">שם הפרויקט:</span> ${escHtml(info.projectName)}</div>`;
+    if (dateStr)          html += `<div class="si-row"><span class="si-label">תאריך עדכון:</span> ${escHtml(dateStr)}</div>`;
+
+    if (folder) {
+        html += `<div class="si-sep"></div>`;
+        // One clear "open folder" action, plus the location and file names as
+        // plain info text (clicking opens a popup with a folder link — the
+        // service backend can't open Explorer in the user's session).
+        html += `<div class="si-row">🗂️ <span class="si-label">מיקום השמירה:</span> ` +
+                `<a href="#" class="si-link" data-path="${fAttr}">📂 פתח תיקייה</a></div>`;
+        html += `<div class="si-row"><span class="si-path" dir="ltr" title="${fAttr}">${escHtml(folder)}</span></div>`;
+        if (info.file)
+            html += `<div class="si-row">📄 <span class="si-label">קובץ:</span> ` +
+                    `<span class="si-path" dir="ltr" title="${escHtml(info.file)}">${escHtml(info.file)}</span></div>`;
+
+        if (Array.isArray(info.attachments) && info.attachments.length) {
+            html += `<div class="si-row" style="margin-top:6px">📎 <span class="si-label">קבצים מצורפים:</span></div>`;
+            html += info.attachments.map(n =>
+                `<div class="si-att"><span class="si-path" dir="ltr">${escHtml(n)}</span></div>`
+            ).join("");
+        }
+    }
+
+    body.innerHTML = html;
+    body.querySelectorAll(".si-link").forEach(a => {
+        a.onclick = (e) => { e.preventDefault(); openFolderForUser(a.dataset.path); };
+    });
+    card.style.display = "block";
 }
 
 // =====================================================================
@@ -2167,5 +2568,39 @@ function initializeTabs() {
         document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
         btn.classList.add("active");
         document.getElementById(btn.dataset.tab).classList.add("active");
+
+        // Refresh the folder tree whenever the Folders tab is opened and a
+        // project number is present, so newly-created folders on disk show up.
+        if (btn.dataset.tab === "foldersTab") {
+            const pid = document.getElementById("projectId").value.trim();
+            if (pid) loadFolderTree(pid);
+        }
     }));
+}
+
+// =====================================================================
+// About panel
+// =====================================================================
+function openAboutPanel() {
+    const panel = document.getElementById("aboutPanel");
+    const verEl = document.getElementById("aboutVersion");
+    if (verEl) verEl.textContent = _liveVersion || "…";
+    panel.style.display = "flex";
+    document.body.classList.add("overlay-open");
+}
+function closeAboutPanel() {
+    document.getElementById("aboutPanel").style.display = "none";
+    document.body.classList.remove("overlay-open");
+}
+
+// =====================================================================
+// Pinned task pane — reload email-specific data on item change
+// =====================================================================
+function loadCurrentItem() {
+    try {
+        loadAttachments();
+        tryRestoreProjectInfo();
+        document.getElementById("status").textContent = "";
+        updateDestBanner();
+    } catch { }
 }

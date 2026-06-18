@@ -1,40 +1,206 @@
+using System.Reflection;
 using System.Text;
-using iText.Html2pdf;
-using iText.Html2pdf.Resolver.Font;
-using iText.Kernel.Pdf;
+using PuppeteerSharp;
+using PuppeteerSharp.Media;
+using static PuppeteerSharp.Media.PaperFormat;
 
+/// <summary>
+/// Generates PDFs using a headless Chromium browser (via PuppeteerSharp).
+///
+/// Why Chromium instead of iText7:
+///   iText7's HTML renderer ignores CSS BiDi properties (direction, unicode-bidi)
+///   and treats every glyph as LTR, producing broken/mirrored Hebrew text.
+///   Chromium implements the Unicode Bidirectional Algorithm natively, so mixed
+///   Hebrew/English text renders correctly with no pre-processing required.
+///
+/// Chromium download:
+///   PuppeteerSharp downloads a pinned Chromium revision to
+///   %USERPROFILE%\.cache\puppeteer  on first use (~170 MB, once per machine).
+///   Subsequent starts are instant — the binary is reused.
+/// </summary>
 public static class PdfService
 {
+    // ── Singleton browser ────────────────────────────────────────────────────
+    // One Chromium process shared across all requests; each request gets its
+    // own Page, which is fully isolated and safe for concurrent use.
+
+    private static IBrowser?          _browser;
+    private static readonly SemaphoreSlim _initLock = new(1, 1);
+
+    // Selected Chromium build (BrowserFetcher buildId). null = PuppeteerSharp's
+    // default pinned build. Set from settings on startup and after an engine update.
+    private static string? _preferredBuild;
+
+    private static async Task<IBrowser> GetBrowserAsync()
+    {
+        if (_browser is { IsConnected: true }) return _browser;
+
+        await _initLock.WaitAsync();
+        try
+        {
+            if (_browser is { IsConnected: true }) return _browser;
+
+            // Resolve the Chromium executable. With a preferred build, use (and if
+            // needed download) exactly that build; otherwise fall back to the
+            // default pinned build (~170 MB, downloaded once per machine).
+            var fetcher = new BrowserFetcher();
+            string? exePath = null;
+            if (!string.IsNullOrWhiteSpace(_preferredBuild))
+            {
+                var inst = fetcher.GetInstalledBrowsers()
+                                  .FirstOrDefault(b => b.BuildId == _preferredBuild)
+                           ?? await fetcher.DownloadAsync(_preferredBuild);
+                exePath = inst.GetExecutablePath();
+            }
+            else
+            {
+                await fetcher.DownloadAsync();
+            }
+
+            _browser = await Puppeteer.LaunchAsync(new LaunchOptions
+            {
+                Headless       = true,
+                ExecutablePath = exePath,   // null → PuppeteerSharp default resolution
+                Args     = new[]
+                {
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--font-render-hinting=none"   // crisper text at PDF resolution
+                }
+            });
+            return _browser;
+        }
+        finally { _initLock.Release(); }
+    }
+
+    // ── Engine management (admin PDF tab) ─────────────────────────────────────
+
+    /// <summary>PuppeteerSharp assembly version driving the PDF engine.</summary>
+    public static string PuppeteerVersion =>
+        typeof(Puppeteer).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+    /// <summary>Apply the configured Chromium build (called on startup).</summary>
+    public static void SetPreferredBuild(string? buildId) =>
+        _preferredBuild = string.IsNullOrWhiteSpace(buildId) ? null : buildId.Trim();
+
+    /// <summary>Close the shared browser so the next request relaunches it
+    /// (e.g. after switching to a freshly downloaded Chromium build).</summary>
+    public static async Task DisposeBrowserAsync()
+    {
+        await _initLock.WaitAsync();
+        try
+        {
+            if (_browser != null)
+            {
+                try { await _browser.CloseAsync(); } catch { }
+                _browser = null;
+            }
+        }
+        finally { _initLock.Release(); }
+    }
+
+    /// <summary>Current engine state for the admin UI.</summary>
+    public static (string current, string[] installed, string cacheDir) GetEngineState()
+    {
+        var f = new BrowserFetcher();
+        string[] installed;
+        try
+        {
+            installed = f.GetInstalledBrowsers()
+                         .Select(b => b.BuildId)
+                         .Distinct()
+                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                         .ToArray();
+        }
+        catch { installed = Array.Empty<string>(); }
+
+        var current = _preferredBuild ?? installed.LastOrDefault() ?? "";
+        return (current, installed, f.CacheDir);
+    }
+
+    /// <summary>Download the latest Chromium build and switch the engine to it.
+    /// Returns the new buildId.</summary>
+    public static async Task<string> UpdateToLatestAsync()
+    {
+        var f        = new BrowserFetcher();
+        var installed = await f.DownloadAsync(BrowserTag.Latest);
+        SetPreferredBuild(installed.BuildId);
+        await DisposeBrowserAsync();   // next render uses the new build
+        return installed.BuildId;
+    }
+
+    // ── Public entry point ────────────────────────────────────────────────────
+
     public static PdfResult GeneratePdf(
-        EmailDto? email,
-        string projectPath,
-        SaveAsPdfRequest? request = null)
+        EmailDto?         email,
+        string            projectPath,
+        SaveAsPdfRequest? request     = null,
+        PdfSettings?      pdfSettings = null)
+    {
+        // Controllers are synchronous; run the async work on the thread pool.
+        return Task.Run(() => GeneratePdfAsync(email, projectPath, request, pdfSettings))
+                   .GetAwaiter().GetResult();
+    }
+
+    private static async Task<PdfResult> GeneratePdfAsync(
+        EmailDto?         email,
+        string            projectPath,
+        SaveAsPdfRequest? request     = null,
+        PdfSettings?      pdfSettings = null)
     {
         var receivedDate = email?.ReceivedDate;
         var timestamp    = receivedDate?.ToString("yyyyMMdd_HHmm")
                            ?? DateTime.Now.ToString("yyyyMMdd_HHmm");
 
-        var safeSubject = Sanitize(StripEmoji(email?.Subject) ?? "(no subject)");
+        var safeSubject = Sanitize(email?.Subject ?? "(no subject)");
         var fileName    = $"{timestamp}_{safeSubject}.pdf";
         var pdfPath     = Path.Combine(projectPath, fileName);
 
         var html   = BuildHtml(email, request);
         var result = new PdfResult { FileName = fileName, FullPath = pdfPath, PdfCreated = false };
 
-        // iText7 cannot write directly to UNC paths — generate locally then copy.
+        // Generate to a local temp file first — avoids UNC path quirks.
         var localTemp = Path.Combine(Path.GetTempPath(), $"saveaspdf_{Guid.NewGuid():N}.pdf");
         try
         {
-            ConvertHtmlToPdf(html, localTemp);
+            var browser = await GetBrowserAsync();
+            await using var page = await browser.NewPageAsync();
+
+            await page.SetContentAsync(html, new NavigationOptions
+            {
+                WaitUntil = new[] { WaitUntilNavigation.Networkidle0 }
+            });
+
+            var ps = pdfSettings ?? new PdfSettings();
+            await page.PdfAsync(localTemp, new PdfOptions
+            {
+                Format              = ResolveFormat(ps.PageSize),
+                Landscape           = ps.Landscape,
+                PrintBackground     = ps.PrintBackground,
+                DisplayHeaderFooter = true,
+                HeaderTemplate      = BuildHeaderTemplate(email?.Subject),
+                FooterTemplate      = BuildFooterTemplate(ReadAppVersion()),
+                MarginOptions   = new MarginOptions
+                {
+                    Top    = $"{ps.MarginTopCm:F2}cm",
+                    Bottom = $"{ps.MarginBottomCm:F2}cm",
+                    Left   = $"{ps.MarginLeftCm:F2}cm",
+                    Right  = $"{ps.MarginRightCm:F2}cm"
+                }
+            });
+
             File.Copy(localTemp, pdfPath, overwrite: true);
             result.PdfCreated = true;
         }
         catch (Exception ex)
         {
-            // Build full exception chain so the UI shows the root cause, not just "Unknown PdfException"
-            var msg = new System.Text.StringBuilder();
+            var msg = new StringBuilder();
             for (var e = ex; e != null; e = e.InnerException)
-                msg.Append(e == ex ? "" : " → ").Append('[').Append(e.GetType().Name).Append("] ").Append(e.Message);
+                msg.Append(e == ex ? "" : " → ")
+                   .Append('[').Append(e.GetType().Name).Append("] ")
+                   .Append(e.Message);
             var reason = msg.ToString();
             if (reason.Length > 800) reason = reason[..800] + "…";
 
@@ -52,124 +218,126 @@ public static class PdfService
         return result;
     }
 
-    // Lazily-built font provider — built once, reused across requests.
-    private static DefaultFontProvider? _fontProvider;
-    private static readonly object _fontLock = new();
+    // ── Helpers ── (PDF options) ──────────────────────────────────────────────
 
-    private static DefaultFontProvider GetFontProvider()
+    private static PaperFormat ResolveFormat(string? size) => size switch
     {
-        if (_fontProvider is not null) return _fontProvider;
-        lock (_fontLock)
+        "Letter"  => Letter,
+        "Legal"   => Legal,
+        "A3"      => A3,
+        _         => A4     // default
+    };
+
+    // ── Header / footer templates ─────────────────────────────────────────────
+    // Chromium renders these as standalone HTML fragments. Note: the default
+    // font-size in header/footer templates is 0, so an explicit font-size is
+    // required or nothing shows. Special spans (pageNumber/totalPages) are
+    // substituted by Chromium at render time.
+
+    private static string BuildHeaderTemplate(string? subject) =>
+        "<div style=\"font-size:9px; width:100%; padding:0 1.2cm; " +
+        "color:#666; text-align:center; direction:rtl;\" dir=\"auto\">" +
+        "<span style=\"font-weight:600;\">Subject:</span> " +
+        Esc(subject ?? "(no subject)") +
+        "</div>";
+
+    private static string BuildFooterTemplate(string version) =>
+        "<div style=\"font-size:9px; width:100%; padding:0 1.2cm; color:#666; " +
+        "display:flex; justify-content:space-between; align-items:center;\">" +
+        "<span style=\"direction:ltr;\">Page <span class=\"pageNumber\"></span> " +
+        "of <span class=\"totalPages\"></span></span>" +
+        "<span style=\"direction:rtl;\">נוצר באמצעות SaveAsPDF גרסה " +
+        Esc(version) + "</span>" +
+        "</div>";
+
+    // Reads the app version from package.json deployed alongside the binary —
+    // the same single source of truth used by InfoController (/api/info).
+    private static string ReadAppVersion()
+    {
+        try
         {
-            if (_fontProvider is not null) return _fontProvider;
-
-            // Start with an empty provider and register only fonts that carry
-            // Hebrew glyphs (U+0590-U+05FF). The standard PDF fonts (Helvetica,
-            // Times-Roman, Courier) do NOT support Hebrew, so we skip them to
-            // prevent iText7 from picking them as a fallback.
-            var provider = new DefaultFontProvider(false, false, false);
-
-            var fontsDir = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
-
-            // Ordered by preference: Arial Unicode covers every block; fallback
-            // to Arial, Segoe UI, Tahoma which all carry the Hebrew Unicode block.
-            var candidates = new[]
+            var path = Path.Combine(AppContext.BaseDirectory, "package.json");
+            if (File.Exists(path))
             {
-                "ARIALUNI.TTF",                           // Arial Unicode MS — widest coverage
-                "arial.ttf",  "arialbd.ttf",  "ariali.ttf",  "arialbi.ttf",
-                "segoeui.ttf","segoeuib.ttf", "segoeuii.ttf","segoeuiz.ttf",
-                "tahoma.ttf", "tahomabd.ttf",
-                "times.ttf",  "timesbd.ttf",  "timesi.ttf",  "timesbi.ttf",
-                "calibri.ttf","calibrib.ttf",
-                "verdana.ttf","verdanab.ttf",
-                "cour.ttf",   "courbd.ttf"
-            };
-
-            foreach (var name in candidates)
-            {
-                var path = Path.Combine(fontsDir, name);
-                if (File.Exists(path))
-                    provider.AddFont(path);
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+                var v = doc.RootElement.GetProperty("version").GetString();
+                if (!string.IsNullOrWhiteSpace(v)) return v!;
             }
-
-            _fontProvider = provider;
-            return _fontProvider;
         }
+        catch { /* fall through to assembly version */ }
+
+        return typeof(PdfService).Assembly
+                   .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+                   ?.InformationalVersion?.Split('+')[0]
+               ?? "0.0.0";
     }
 
-    private static void ConvertHtmlToPdf(string html, string outputPath)
-    {
-        // Strip elements that cause iText7 to fail or stall on a server with no
-        // internet: scripts, external stylesheets, and external image src URLs.
-        html = System.Text.RegularExpressions.Regex.Replace(
-            html, @"<script\b[^>]*>[\s\S]*?</script>", "",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    // ── HTML composition ──────────────────────────────────────────────────────
+    // Chromium implements the Unicode BiDi Algorithm and respects CSS
+    // direction/unicode-bidi, so no character-level RTL pre-processing is needed.
 
-        html = System.Text.RegularExpressions.Regex.Replace(
-            html, @"<link\b[^>]*\brel\s*=\s*[""']stylesheet[""'][^>]*/?>", "",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        html = System.Text.RegularExpressions.Regex.Replace(
-            html, @"(src\s*=\s*"")https?://[^""]*""", "$1\"",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        html = System.Text.RegularExpressions.Regex.Replace(
-            html, @"(src\s*=\s*')https?://[^']*'", "$1'",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        var props = new ConverterProperties();
-        props.SetFontProvider(GetFontProvider());
-
-        using var fs  = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
-        using var pdf = new PdfDocument(new PdfWriter(fs));
-        HtmlConverter.ConvertToPdf(html, pdf, props);
-    }
-
-    // ---------------------------------------------------------------
-    // HTML composition
-    // ---------------------------------------------------------------
     private static string BuildHtml(EmailDto? email, SaveAsPdfRequest? req)
     {
         var sb = new StringBuilder();
         sb.Append(@"<!DOCTYPE html>
 <html lang=""he""><head><meta charset=""UTF-8"" />
 <style>
-  @page { margin: 1.5cm; }
   body {
-    font-family: 'Arial Unicode MS', Arial, 'Segoe UI', Tahoma, Verdana, sans-serif;
-    color: #222; line-height: 1.5; font-size: 12px; margin: 0;
+    font-family: Arial, 'Segoe UI', Tahoma, Verdana, sans-serif;
+    color: #222; line-height: 1.5; font-size: 12px; margin: 0; padding: 0;
   }
-  /* direction: rtl makes iText7 put the first <td> on the RIGHT (Hebrew label
-     column). Character order within cells is handled by RtlText() pre-reversal
-     in C# — CSS BiDi properties are ignored by iText7 at the inline level. */
   .saveaspdf-stamp {
     direction: rtl; text-align: right;
     border: 2px solid #0078d4; background: #f0f6fc; border-radius: 6px;
     padding: 12px 16px; margin-bottom: 18px;
   }
-  .saveaspdf-stamp table { direction: rtl; border-collapse: collapse; width: 100%; }
-  /* direction: ltr prevents iText7 from mirror-substituting brackets/parens.
-     text-align: right keeps the pre-reversed Hebrew text visually on the right. */
-  .saveaspdf-stamp td   { direction: ltr; text-align: right; padding: 2px 0 2px 8px; vertical-align: top; font-size: 12px; }
+  .saveaspdf-stamp table { border-collapse: collapse; width: 100%; }
+  .saveaspdf-stamp td    { padding: 2px 0 2px 8px; vertical-align: top; font-size: 12px; }
   .saveaspdf-stamp .label { color: #666; white-space: nowrap; width: 1%; }
   .saveaspdf-stamp .fwd   { color: #107c10; font-weight: 600; }
-  .original { border-top: 1px solid #ddd; padding-top: 14px; direction: rtl; text-align: right; }
-  .original .meta { font-size: 11px; color: #666; margin-bottom: 6px; direction: ltr; text-align: right; }
-  .original h3    { margin: 0 0 8px 0; font-size: 14px; direction: ltr; text-align: right; }
+  .saveaspdf-stamp .msg-header { border-top: 1px solid #cfe0f0; margin-top: 12px; padding-top: 10px; }
+  .saveaspdf-stamp .msg-header-title {
+    color: #0078d4; font-weight: 700; font-size: 12px;
+    margin-bottom: 6px; letter-spacing: .2px;
+  }
+  .saveaspdf-stamp .msg-header table { border-collapse: collapse; width: 100%; }
+  .saveaspdf-stamp .msg-header td { padding: 3px 0 3px 10px; vertical-align: top; font-size: 12px; }
+  .saveaspdf-stamp .msg-header td.label {
+    color: #555; font-weight: 600; white-space: nowrap;
+    width: 72px; text-align: right;
+  }
+  .saveaspdf-stamp .msg-header td.value { color: #222; word-break: break-word; }
+  .original { border-top: 1px solid #ddd; padding-top: 14px; }
+  .original .meta { font-size: 11px; color: #666; margin-bottom: 6px;
+                    direction: rtl; text-align: right; }
+  .original h3    { margin: 0 0 8px 0; font-size: 14px;
+                    direction: rtl; text-align: right; }
   .original .body { direction: rtl; unicode-bidi: embed; margin-top: 10px; }
+  /* Outlook/Gmail sometimes emit ol/ul with an inline display:flex, which
+     Chromium honors by laying list items out side-by-side as columns
+     (garbled in the PDF, though Outlook shows them stacked). Force lists
+     back to normal vertical flow; !important beats the inline style. */
+  .original .body ol,
+  .original .body ul   { display: block !important; }
+  .original .body li   { display: list-item !important; }
 </style>
 </head><body>");
 
-        AppendStamp(sb, req);
+        AppendStamp(sb, req, email);
         AppendOriginalEmail(sb, email);
 
         sb.Append("</body></html>");
         return sb.ToString();
     }
 
-    private static void AppendStamp(StringBuilder sb, SaveAsPdfRequest? req)
+    private static void AppendStamp(StringBuilder sb, SaveAsPdfRequest? req, EmailDto? email = null)
     {
         var stamp = req?.Stamp;
+
+        // No stamp at all (user opted out, or admin forced stamping off) → no frame.
         if (stamp == null) return;
+
+        sb.Append("<div class=\"saveaspdf-stamp\">");
 
         if (!string.IsNullOrWhiteSpace(stamp.Template))
         {
@@ -182,20 +350,31 @@ public static class PdfService
                 .Replace("{{employees}}",   FormatEmployees(req?.Employees))
                 .Replace("{{attachments}}", FormatAttachmentNames(stamp.AttachmentNames))
                 .Replace("{{notes}}",       Esc(stamp.Notes));
-            sb.Append("<div class=\"saveaspdf-stamp\">").Append(rendered).Append("</div>");
+            sb.Append(rendered);
+            AppendMessageHeader(sb, email, stamp);
+            sb.Append("</div>");
             return;
         }
 
-        sb.Append("<div class=\"saveaspdf-stamp\">");
         sb.Append("<table>");
 
-        if (stamp.IncludeProjectId && !string.IsNullOrWhiteSpace(req?.ProjectId))
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("מספר פרויקט:")).Append("</td><td><b>")
-              .Append(Esc(req.ProjectId)).Append("</b></td></tr>");
+        void Row(string label, string value) =>
+            sb.Append("<tr><td class=\"label\">").Append(label)
+              .Append("</td><td>").Append(value).Append("</td></tr>");
 
-        if (stamp.IncludeProjectName && !string.IsNullOrWhiteSpace(req?.ProjectName))
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("שם פרויקט:")).Append("</td><td>")
-              .Append(EscRtl(req.ProjectName)).Append("</td></tr>");
+        var empty = "<i style=\"color:#999\">(אין)</i>";
+
+        if (stamp.IncludeProjectId)
+            Row("מספר פרויקט:",
+                !string.IsNullOrWhiteSpace(req?.ProjectId)
+                    ? $"<b>{Esc(req.ProjectId)}</b>"
+                    : empty);
+
+        if (stamp.IncludeProjectName)
+            Row("שם פרויקט:",
+                !string.IsNullOrWhiteSpace(req?.ProjectName)
+                    ? Esc(req.ProjectName)
+                    : empty);
 
         if (stamp.IncludeLeader)
         {
@@ -204,87 +383,115 @@ public static class PdfService
             var leaderEmail    = leaderEmployee?.Email?.Trim();
             if (string.IsNullOrWhiteSpace(leaderDisplay))
                 leaderDisplay = req?.ProjectLeader?.Trim();
-            if (!string.IsNullOrWhiteSpace(leaderDisplay))
+            string leaderCell;
+            if (string.IsNullOrWhiteSpace(leaderDisplay))
             {
-                var leaderCell = !string.IsNullOrWhiteSpace(leaderEmail)
-                    ? $"<a href=\"mailto:{Esc(leaderEmail)}\">{EscRtl(leaderDisplay)}</a>"
-                    : EscRtl(leaderDisplay);
-                sb.Append("<tr><td class=\"label\">").Append(EscRtl("מנהל פרויקט:"))
-                  .Append("</td><td>").Append(leaderCell).Append("</td></tr>");
+                leaderCell = empty;
             }
+            else
+            {
+                leaderCell = !string.IsNullOrWhiteSpace(leaderEmail)
+                    ? $"<a href=\"mailto:{Esc(leaderEmail)}\">{Esc(leaderDisplay)}</a>"
+                    : Esc(leaderDisplay);
+            }
+            Row("מנהל פרויקט:", leaderCell);
         }
 
         if (stamp.IncludeDate)
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("תאריך שמירה:")).Append("</td><td>")
-              .Append(Esc(DateTime.Now.ToString("dd/MM/yyyy HH:mm"))).Append("</td></tr>");
-
-        var empty = $"<i style=\"color:#999\">{EscRtl("(אין)")}</i>";
+            Row("תאריך שמירה:", Esc(DateTime.Now.ToString("dd/MM/yyyy HH:mm")));
 
         if (stamp.IncludeUser)
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("נשמר על-ידי:")).Append("</td><td>")
-              .Append(string.IsNullOrWhiteSpace(stamp.UserName) ? empty : EscRtl(stamp.UserName))
-              .Append("</td></tr>");
+            Row("נשמר על-ידי:",
+                string.IsNullOrWhiteSpace(stamp.UserName) ? empty : Esc(stamp.UserName));
 
         if (stamp.IncludeEmployees)
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("עובדי פרויקט:")).Append("</td><td>")
-              .Append(req?.Employees?.Count > 0 ? FormatEmployees(req.Employees) : empty)
-              .Append("</td></tr>");
+            Row("עובדי פרויקט:",
+                req?.Employees?.Count > 0 ? FormatEmployees(req.Employees) : empty);
 
         if (stamp.IncludeAttachments)
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("קבצים מצורפים:")).Append("</td><td>")
-              .Append(stamp.AttachmentNames?.Count > 0 ? FormatAttachmentNames(stamp.AttachmentNames) : empty)
-              .Append("</td></tr>");
+            Row("קבצים מצורפים:",
+                stamp.AttachmentNames?.Count > 0 ? FormatAttachmentNames(stamp.AttachmentNames) : empty);
 
         if (stamp.Forwarded)
         {
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("הועבר למנהל:"))
-              .Append("</td><td class=\"fwd\">").Append(EscRtl("כן"));
+            var fwdVal = "כן";
             if (!string.IsNullOrWhiteSpace(stamp.ForwardedTo))
-                sb.Append(" (").Append(EscRtl(stamp.ForwardedTo)).Append(")");
-            sb.Append("</td></tr>");
+                fwdVal += $" ({Esc(stamp.ForwardedTo)})";
+            sb.Append("<tr><td class=\"label\">הועבר למנהל:</td>")
+              .Append("<td class=\"fwd\">").Append(fwdVal).Append("</td></tr>");
         }
 
         if (!string.IsNullOrWhiteSpace(stamp.Notes))
-            sb.Append("<tr><td class=\"label\">").Append(EscRtl("הערות:")).Append("</td><td>")
-              .Append(EscRtl(stamp.Notes)).Append("</td></tr>");
+            Row("הערות:", Esc(stamp.Notes));
 
         sb.Append("</table>");
 
         if (stamp.PolicyApplied)
             sb.Append("<div style=\"margin-top:8px;font-size:10px;color:#888;font-style:italic\">")
-              .Append(EscRtl("[נעול] חלק מהשדות נקבעו על-ידי מנהל המערכת")).Append("</div>");
+              .Append("[נעול] חלק מהשדות נקבעו על-ידי מנהל המערכת</div>");
+
+        // Message header (from/to/sent/received…) rendered inside the same frame
+        AppendMessageHeader(sb, email, stamp);
 
         sb.Append("</div>");
+    }
+
+    // Renders the original message's header fields (subject, from, to, cc, sent,
+    // received) as a sub-block inside the SaveAsPDF frame, so the reader sees the
+    // message's provenance and where it sits alongside the save details.
+    private static void AppendMessageHeader(StringBuilder sb, EmailDto? email, StampInfo? stamp)
+    {
+        if (email == null) return;
+
+        // Each header field is shown when its stamp toggle is on. When there is no
+        // stamp config at all (stamp == null), every available field is shown.
+        bool On(bool flag) => stamp == null || flag;
+
+        var rows = new StringBuilder();
+        void HRow(string label, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            rows.Append("<tr><td class=\"label\">").Append(label)
+                .Append("</td><td class=\"value\">").Append(value).Append("</td></tr>");
+        }
+
+        // Clean, fixed field order. Labels align in their own column (see CSS).
+        if (On(stamp?.IncludeFrom ?? true))
+            HRow("מאת:",   Esc(email.From));                                     // From
+        if (On(stamp?.IncludeTo ?? true) && email.To?.Count > 0)
+            HRow("אל:",    Esc(string.Join(", ", email.To)));                    // To
+        if (On(stamp?.IncludeCc ?? true) && email.Cc?.Count > 0)
+            HRow("עותק:",  Esc(string.Join(", ", email.Cc)));                    // CC
+        if (On(stamp?.IncludeSent ?? true) && email.SentDate.HasValue)
+            HRow("נשלח:",  Esc(email.SentDate.Value.ToString("dd/MM/yyyy HH:mm")));  // Sent
+        if (On(stamp?.IncludeReceived ?? true) && email.ReceivedDate.HasValue)
+            HRow("התקבל:", Esc(email.ReceivedDate.Value.ToString("dd/MM/yyyy HH:mm"))); // Received
+        if (On(stamp?.IncludeSubject ?? true))
+            HRow("נושא:",  Esc(email.Subject));                                  // Subject
+
+        if (rows.Length == 0) return;
+
+        sb.Append("<div class=\"msg-header\">")
+          .Append("<div class=\"msg-header-title\">פרטי ההודעה</div>")
+          .Append("<table>").Append(rows).Append("</table></div>");
     }
 
     private static void AppendOriginalEmail(StringBuilder sb, EmailDto? email)
     {
         if (email == null) return;
         sb.Append("<div class=\"original\">");
-        // Subject: may be Hebrew — pre-reverse
-        sb.Append("<h3>").Append(EscRtl(StripEmoji(email.Subject) ?? "(ללא נושא)")).Append("</h3>");
+        sb.Append("<h3>").Append(Esc(email.Subject ?? "(ללא נושא)")).Append("</h3>");
 
-        // Meta lines: Hebrew label pre-reversed, LTR value follows after a space
-        if (!string.IsNullOrWhiteSpace(email.From))
-            sb.Append("<div class=\"meta\">").Append(EscRtl("מאת:")).Append(" ").Append(Esc(email.From)).Append("</div>");
+        // From/To/Cc/dates now live in the SaveAsPDF frame above (AppendMessageHeader);
+        // this section holds only the subject heading and the verbatim body.
 
-        if (email.To?.Count > 0)
-            sb.Append("<div class=\"meta\">").Append(EscRtl("אל:")).Append(" ").Append(Esc(string.Join(", ", email.To))).Append("</div>");
-
-        if (email.Cc?.Count > 0)
-            sb.Append("<div class=\"meta\">").Append(EscRtl("עותק:")).Append(" ").Append(Esc(string.Join(", ", email.Cc))).Append("</div>");
-
-        if (email.ReceivedDate.HasValue)
-            sb.Append("<div class=\"meta\">").Append(EscRtl("תאריך:")).Append(" ")
-              .Append(Esc(email.ReceivedDate.Value.ToString("dd/MM/yyyy HH:mm"))).Append("</div>");
-
-        // Email body: apply run-level RTL pre-processing to every text node so
-        // iText7's LTR renderer produces correct Hebrew visual order.
-        sb.Append("<div class=\"body\">").Append(ApplyRtlToHtml(email.BodyHtml ?? "")).Append("</div>");
+        // Emit the email body verbatim — Chromium handles RTL/bidi natively via CSS
+        sb.Append("<div class=\"body\">").Append(email.BodyHtml ?? "").Append("</div>");
         sb.Append("</div>");
     }
 
-    // ---------------------------------------------------------------
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static string Sanitize(string name)
     {
         foreach (var c in Path.GetInvalidFileNameChars())
@@ -292,168 +499,20 @@ public static class PdfService
         return name;
     }
 
-    // Remove characters outside the BMP (emoji, supplementary symbols) that
-    // registered Windows fonts don't have glyphs for. iText7 throws an
-    // ArgumentOutOfRangeException when it encounters orphaned surrogates.
-    private static string StripEmoji(string? s)
-    {
-        if (string.IsNullOrEmpty(s)) return "";
-        var sb = new System.Text.StringBuilder(s.Length);
-        for (int i = 0; i < s.Length; )
-        {
-            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
-            {
-                i += 2; // skip the surrogate pair (emoji / supplementary char)
-            }
-            else
-            {
-                sb.Append(s[i]);
-                i++;
-            }
-        }
-        return sb.ToString();
-    }
-
     private static string Esc(string? s) =>
         string.IsNullOrEmpty(s) ? "" :
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
-    // iText7 ignores all CSS BiDi properties and renders every glyph LTR.
-    // We implement a simplified Unicode BiDi visual reorder so text reads
-    // correctly when a Hebrew user scans the page right-to-left:
-    //
-    //  1. Parse the string into Unicode code points (keeps surrogate pairs intact).
-    //  2. Classify each code point: Hebrew (H), Latin/digit (L), or neutral (N).
-    //  3. Resolve neutrals: they inherit the direction of the preceding strong char.
-    //  4. Merge adjacent same-direction code points into runs.
-    //  5. Reverse the run order (RTL base direction).
-    //  6. Within each Hebrew run, also reverse the character order.
-    //     LTR runs (e.g. "Re:", email addresses, numbers) stay intact.
-    //
-    // Result: "Re: כדי לשפר" → visual "רפשל ידכ Re:" — Hebrew reads correctly
-    // right-to-left; Latin words keep their natural left-to-right letter order.
-    private static string RtlText(string? s)
-    {
-        if (string.IsNullOrEmpty(s)) return "";
-
-        // --- Step 1: parse into code points ---
-        var cp    = new List<string>(s.Length);
-        var cpDir = new List<char>(s.Length); // 'H', 'L', or 'N'
-        bool hasHebrew = false;
-
-        for (int i = 0; i < s.Length; )
-        {
-            string unit;
-            char   dir;
-            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
-            {
-                unit = new string(new[] { s[i], s[i + 1] });
-                dir  = 'N'; // emoji / supplementary = neutral
-                i += 2;
-            }
-            else
-            {
-                char c = s[i++];
-                unit = c.ToString();
-                if (c is >= 'א' and <= 'ת')                          { dir = 'H'; hasHebrew = true; }
-                else if (c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9'))
-                                                                      { dir = 'L'; }
-                else                                                  { dir = 'N'; }
-            }
-            cp.Add(unit);
-            cpDir.Add(dir);
-        }
-
-        if (!hasHebrew) return s;
-
-        // --- Step 2: resolve neutrals (inherit preceding strong direction) ---
-        char last = 'L';
-        for (int i = 0; i < cpDir.Count; i++)
-        {
-            if (cpDir[i] != 'N') { last = cpDir[i]; }
-            else                 { cpDir[i] = last;  }
-        }
-
-        // --- Step 3: group into runs ---
-        var runs = new List<(char dir, List<string> chars)>();
-        for (int i = 0; i < cp.Count; i++)
-        {
-            if (runs.Count == 0 || runs[^1].dir != cpDir[i])
-                runs.Add((cpDir[i], new List<string>()));
-            runs[^1].chars.Add(cp[i]);
-        }
-
-        // --- Step 4: reverse run order; reverse chars inside Hebrew runs ---
-        runs.Reverse();
-        var sb = new StringBuilder();
-        foreach (var (dir, chars) in runs)
-        {
-            if (dir == 'H') for (int i = chars.Count - 1; i >= 0; i--) sb.Append(chars[i]);
-            else            foreach (var c in chars)                     sb.Append(c);
-        }
-        return sb.ToString();
-    }
-
-    // Apply RtlText to every plain-text node inside an HTML fragment.
-    // Tags and attributes are passed through unchanged; only visible text is reordered.
-    private static string ApplyRtlToHtml(string html)
-    {
-        if (string.IsNullOrEmpty(html)) return "";
-        var result = new StringBuilder(html.Length);
-        int pos = 0;
-        while (pos < html.Length)
-        {
-            // Find next tag opening
-            int tagOpen = html.IndexOf('<', pos);
-            if (tagOpen < 0) tagOpen = html.Length;
-
-            // Text node before the tag
-            if (tagOpen > pos)
-            {
-                var raw     = html.Substring(pos, tagOpen - pos);
-                var decoded = System.Net.WebUtility.HtmlDecode(raw);
-                result.Append(Esc(RtlText(decoded)));
-            }
-
-            if (tagOpen >= html.Length) break;
-
-            // Copy the tag itself verbatim (preserve all attributes including dir="rtl")
-            int tagClose = html.IndexOf('>', tagOpen);
-            if (tagClose < 0) { result.Append(html.Substring(tagOpen)); break; }
-
-            // Skip script/style blocks entirely
-            var tag = html.Substring(tagOpen, tagClose - tagOpen + 1).ToLowerInvariant();
-            if (tag.StartsWith("<script") || tag.StartsWith("<style"))
-            {
-                string close = tag.StartsWith("<script") ? "</script>" : "</style>";
-                int blockEnd = html.IndexOf(close, tagClose, StringComparison.OrdinalIgnoreCase);
-                if (blockEnd < 0) { result.Append(html.Substring(tagOpen)); break; }
-                pos = blockEnd + close.Length;
-                continue;
-            }
-
-            result.Append(html.Substring(tagOpen, tagClose - tagOpen + 1));
-            pos = tagClose + 1;
-        }
-        return result.ToString();
-    }
-
-    // HTML-escape after RTL pre-processing so entity characters (&, <, >)
-    // are never split by the reversal.
-    private static string EscRtl(string? s) => Esc(RtlText(s));
-
     private static string FormatEmployees(List<EmployeeDto>? employees)
     {
         if (employees == null || employees.Count == 0) return "";
-        var parts = employees.Select(e =>
+        return string.Join(" ,", employees.Select(e =>
         {
-            var name  = e.DisplayName ?? e.Email ?? "";
-            var label = EscRtl(name);
+            var label = Esc(e.DisplayName ?? e.Email ?? "");
             return e.IsLeader
-                ? $"<b>{label}</b> <span style=\"color:#107c10;font-size:11px\">{EscRtl("(מנהל)")}</span>"
+                ? $"<b>{label}</b> <span style=\"color:#107c10;font-size:11px\">(מנהל)</span>"
                 : label;
-        });
-        return string.Join(EscRtl(" ,"), parts);  // comma+space also reversed for RTL
+        }));
     }
 
     private static string FormatAttachmentNames(List<string>? names)
@@ -461,6 +520,6 @@ public static class PdfService
         if (names == null || names.Count == 0) return "";
         return string.Join(", ", names
             .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Select(n => EscRtl(n)));
+            .Select(Esc));
     }
 }

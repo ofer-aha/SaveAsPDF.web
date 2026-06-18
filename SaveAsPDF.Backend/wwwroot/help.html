@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SaveAsPDF – עזרה</title>
+<style>
+  :root {
+    --primary: #0078d4;
+    --surface: #ffffff;
+    --surface-2: #f3f6fa;
+    --border: #e1e4e8;
+    --text: #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+    font-size: 15px;
+    background: var(--surface-2);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 32px 16px 60px;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--primary);
+  }
+  header img { width: 40px; height: 40px; }
+  header h1 { font-size: 22px; font-weight: 700; color: var(--primary); }
+  header span { font-size: 13px; color: var(--muted); margin-right: auto; }
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  section h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  ol, ul { padding-right: 22px; }
+  li { margin-bottom: 8px; }
+  .step {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .step-num {
+    background: var(--primary);
+    color: #fff;
+    border-radius: 50%;
+    min-width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-body { flex: 1; }
+  .step-body strong { display: block; margin-bottom: 2px; }
+  .tip {
+    background: #e8f4fd;
+    border-right: 4px solid var(--primary);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #1a5276;
+    margin-top: 12px;
+  }
+  code {
+    background: #f0f0f0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+  }
+  footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 24px;
+  }
+  footer a { color: var(--primary); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <img src="/assets/saveaspdf-logo.png" alt="SaveAsPDF" />
+    <h1>SaveAsPDF – מדריך שימוש</h1>
+    <span id="ver"></span>
+  </header>
+
+  <section>
+    <h2>✉️ שמירת מייל כ‑PDF</h2>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>פתחו הודעת מייל ב‑Outlook</strong>
+        לחצו על "שמור כ‑PDF" בסרגל הכלים, או השתמשו בסמל SaveAsPDF בצד הימני.
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>הזינו פרטי פרויקט</strong>
+        מספר פרויקט, שם הפרויקט ומנהל/ת הפרויקט. הנתונים יישמרו כנכסים מותאמים אישית בהודעה ויוצגו שוב בפתיחה הבאה.
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>בחרו תיקיית יעד (אופציונלי)</strong>
+        בלשונית "תיקיות" תופיע עץ התיקיות של הפרויקט. לחיצה ימנית מאפשרת יצירה, שינוי שם ומחיקה.
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <strong>לחצו "שמור כ‑PDF"</strong>
+        הקובץ ייווצר בתיקיית הפרויקט ותישלח הודעת אישור.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>🖋️ חותמת PDF</h2>
+    <p>החותמת נוספת בראש הקובץ השמור ומכילה את פרטי הפרויקט. ניתן להגדיר אילו שדות יופיעו דרך <strong>⚙ הגדרות → סימון מצב</strong>.</p>
+    <ul style="margin-top:10px">
+      <li>מספר פרויקט, שם הפרויקט, מנהל פרויקט</li>
+      <li>תאריך שמירה, שם המשתמש השומר</li>
+      <li>רשימת עובדי הפרויקט וקבצים מצורפים</li>
+      <li>תבנית HTML מותאמת אישית (מצב מתקדם)</li>
+    </ul>
+    <div class="tip">💡 אם שדה מופעל אך ריק, תופיע הכיתוב <em>(אין)</em> במקומו.</div>
+  </section>
+
+  <section>
+    <h2>📁 עץ התיקיות</h2>
+    <ul>
+      <li><strong>לחיצה</strong> על תיקיה — בחירה כיעד השמירה</li>
+      <li><strong>לחיצה ימנית</strong> — תפריט הקשר: פתח בסייר, צור תיקיה, שנה שם, מחק, רענן</li>
+      <li><strong>לחיצה כפולה</strong> — פתיחת התיקיה בסייר הקבצים</li>
+      <li>תיקיית ברירת מחדל ניתן להגדיר ב‑⚙ הגדרות → שם תיקיה</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>👥 עובדי פרויקט</h2>
+    <p>בלשונית "עובדי פרויקט" ניתן להוסיף עובדים מאנשי הקשר של Outlook. עובד המסומן כ<strong>מנהל</strong> יופיע גם בשורת "מנהל פרויקט" בחותמת.</p>
+    <div class="tip">💡 לחצו על "בחר" ליד שדה מנהל הפרויקט לפתיחת בורר אנשי הקשר.</div>
+  </section>
+
+  <section>
+    <h2>📌 נעיצת החלונית</h2>
+    <p>כדי שהחלונית תישאר פתוחה בעת מעבר בין הודעות, לחצו על סמל ה‑📌 שמופיע בסרגל הכותרת של החלונית.</p>
+    <p style="margin-top:8px">כאשר החלונית נעוצה, רשימת הקבצים המצורפים תתרענן אוטומטית עם כל הודעה חדשה.</p>
+  </section>
+
+  <section>
+    <h2>⚙️ הגדרות</h2>
+    <ul>
+      <li><strong>סימון מצב</strong> — שדות החותמת ותבנית HTML מותאמת</li>
+      <li><strong>שם תיקיה</strong> — תיקיית ברירת מחדל ותבנית שם תיקיה חדשה</li>
+      <li><strong>הגדרות נוספות</strong> — מצב תחנת הפצה, מנהל פרויקט ברירת מחדל, סינון תמונות חתימה</li>
+      <li><strong>קטגוריות</strong> — קטגוריית Outlook לסימון הודעות לאחר שמירה</li>
+    </ul>
+  </section>
+
+  <footer>
+    <b>SaveAsPDF</b> v<span id="footVer">—</span> &nbsp;|&nbsp;
+    פותח על-ידי <a href="mailto:ofer@sw-eng.co.il">Ofer Aharon &lt;ofer@sw-eng.co.il&gt;</a>
+  </footer>
+</div>
+
+<script>
+  fetch('/api/info').then(r => r.json()).then(j => {
+    const v = j.version || '';
+    document.getElementById('ver').textContent    = v ? 'גרסה ' + v : '';
+    document.getElementById('footVer').textContent = v || '—';
+  }).catch(() => {});
+</script>
+</body>
+</html>

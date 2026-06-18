@@ -9,6 +9,14 @@ public class StampInfo
     public bool IncludeEmployees   { get; set; }
     public bool IncludeAttachments { get; set; }
 
+    // Original-message header fields rendered inside the SaveAsPDF frame.
+    public bool IncludeFrom     { get; set; } = true;
+    public bool IncludeTo       { get; set; } = true;
+    public bool IncludeCc       { get; set; } = true;
+    public bool IncludeSent     { get; set; } = true;
+    public bool IncludeReceived { get; set; } = true;
+    public bool IncludeSubject  { get; set; } = true;
+
     public string? Notes    { get; set; }
     public string? Template { get; set; }   // optional override; non-empty = use as HTML
 

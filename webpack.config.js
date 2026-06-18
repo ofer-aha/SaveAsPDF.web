@@ -85,11 +85,14 @@ module.exports = async (env, options) => {
             from: "manifest*.json",
             to: "[name]" + "[ext]",
             transform(content) {
-              if (dev) {
-                return content;
-              } else {
-                return content.toString().replace(new RegExp(urlDev, "g"), urlProd);
+              let text = content.toString();
+              // Keep the deployed manifest version in lockstep with package.json
+              // so every build ships the current version automatically.
+              text = text.replace(/"version":\s*"[^"]*"/, `"version": "${pkg.version}"`);
+              if (!dev) {
+                text = text.replace(new RegExp(urlDev, "g"), urlProd);
               }
+              return text;
             },
           },
         ],

@@ -4,12 +4,15 @@ using Microsoft.AspNetCore.Mvc;
 [Route("api/saveaspdf")]
 public class SaveAsPdfController : ControllerBase
 {
-    private readonly SettingsService _settings;
+    private readonly SettingsService    _settings;
     private readonly ProjectDataService _data;
-    public SaveAsPdfController(SettingsService settings, ProjectDataService data)
+    private readonly LogService         _log;
+
+    public SaveAsPdfController(SettingsService settings, ProjectDataService data, LogService log)
     {
         _settings = settings;
         _data     = data;
+        _log      = log;
     }
 
     private static string? ResolveSafeSubfolder(string projectRoot, string relativePath)
@@ -86,8 +89,12 @@ public class SaveAsPdfController : ControllerBase
             saveDir = resolved;
         }
 
-        // 3. Generate PDF (mandatory) — stamp + forward info embedded in the PDF
-        var pdfInfo = PdfService.GeneratePdf(request.Email, saveDir, request);
+        // 3. Generate PDF (mandatory) — stamp + forward info embedded in the PDF.
+        //    Effective PDF settings = admin defaults + user choices, with the
+        //    admin PdfPolicy forcing any locked field.
+        var effectivePdf = (settings.PdfPolicy ?? new PdfPolicy())
+                               .Resolve(settings.PdfSettings ?? new PdfSettings(), request.PdfSettings);
+        var pdfInfo = PdfService.GeneratePdf(request.Email, saveDir, request, effectivePdf);
 
         // 4. Save attachments — best-effort; a corrupt attachment must never block
         //    PDF delivery or metadata persistence (step 5).
@@ -120,7 +127,24 @@ public class SaveAsPdfController : ControllerBase
         }
         catch (Exception ex) { Console.Error.WriteLine($"[SaveAsPDF] metadata save failed: {ex.Message}"); }
 
-        // 6. Return result
+        // 6. Log the save event (best-effort — must never block the response)
+        try
+        {
+            _log.Log(new LogEntry
+            {
+                Level       = "success",
+                Username    = request.SavedBy ?? request.Stamp?.UserName ?? "",
+                Subject     = request.Email?.Subject ?? "",
+                Attachments = (request.Attachments?.Select(a => a.Name ?? "")
+                               ?? Enumerable.Empty<string>()).ToArray(),
+                ProjectId   = request.ProjectId!,
+                ProjectName = request.ProjectName ?? "",
+                SavePath    = pdfInfo.FullPath
+            });
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[SaveAsPDF] log failed: {ex.Message}"); }
+
+        // 7. Return result
         return Ok(new
         {
             pdf = pdfInfo,

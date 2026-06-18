@@ -131,6 +131,30 @@
             margin: 0 0 10px 0;
             text-transform: none;
         }
+
+        /* === Saved-message info card === */
+        #savedInfo .card-title { color: #107c10; }
+        .si-row { font-size: 13px; line-height: 1.6; }
+        .si-label { color: var(--muted); }
+        .si-sep {
+            height: 1px;
+            background: var(--border);
+            margin: 8px 0;
+        }
+        .si-att { font-size: 13px; padding: 1px 0 1px 14px; }
+        .si-path {
+            font-size: 12px;
+            color: var(--fg, #333);
+            word-break: break-all;
+            unicode-bidi: plaintext;
+        }
+        .si-link {
+            color: var(--primary);
+            text-decoration: none;
+            cursor: pointer;
+            word-break: break-all;
+        }
+        .si-link:hover { text-decoration: underline; }
         fieldset {
             margin: 18px 0 0 0;
             padding: 14px;
@@ -170,6 +194,18 @@
         }
         button:hover { background: var(--surface-2); }
         button:disabled { opacity: 0.55; cursor: default; }
+
+        /* Keep the three project text boxes and the "בחר" button at one fixed
+           height so the project-manager row matches the boxes above it exactly. */
+        #projectId, #projectName, #projectLeader {
+            height: 36px;
+        }
+        #pickLeaderBtn {
+            height: 36px;
+            margin-top: 5px;
+            padding: 0 14px;
+            flex-shrink: 0;
+        }
 
         button.primary, #saveBtn {
             background: var(--primary);
@@ -743,6 +779,58 @@
             font-size: 14px;
             cursor: pointer;
         }
+        /* === About panel === */
+        #aboutPanel {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: var(--surface);
+            z-index: 1000;
+            flex-direction: column;
+            direction: rtl;
+        }
+        #aboutPanel .ab-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            background: #fafafa;
+            flex-shrink: 0;
+        }
+        #aboutPanel .ab-header button {
+            margin: 0; padding: 0 4px;
+            border: none; background: none;
+            font-size: 18px; cursor: pointer; line-height: 1;
+        }
+        #aboutPanel .ab-header strong {
+            font-size: 14px; flex: 1; text-align: right;
+        }
+        #aboutPanel .ab-body {
+            flex: 1; overflow-y: auto; padding: 20px 18px;
+            display: flex; flex-direction: column; align-items: center; gap: 12px;
+            text-align: center;
+        }
+        #aboutPanel .ab-logo { width: 64px; height: 64px; margin-bottom: 4px; }
+        #aboutPanel .ab-appname { font-size: 20px; font-weight: 700; color: var(--text); }
+        #aboutPanel .ab-version { font-size: 13px; color: var(--muted); }
+        #aboutPanel .ab-desc {
+            font-size: 13px; color: var(--muted); line-height: 1.5;
+            max-width: 260px; margin-top: 4px;
+        }
+        #aboutPanel .ab-divider {
+            width: 100%; height: 1px; background: var(--border); margin: 4px 0;
+        }
+        #aboutPanel .ab-author { font-size: 13px; color: var(--text); font-weight: 600; }
+        #aboutPanel .ab-contact { font-size: 12px; color: var(--muted); }
+        #aboutPanel .ab-contact a { color: var(--primary); text-decoration: none; }
+        #aboutPanel .ab-contact a:hover { text-decoration: underline; }
+        #aboutPanel .ab-pin-note {
+            margin-top: 8px; font-size: 11px; color: var(--muted);
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 12px; text-align: right;
+            width: 100%; box-sizing: border-box; line-height: 1.5;
+        }
     </style>
 </head>
 
@@ -774,6 +862,7 @@
                title="ממשק ניהול"
                aria-label="Admin"
                style="display:none">🛡</a>
+            <button id="aboutBtn" type="button" class="icon-btn" title="אודות" aria-label="About">ℹ️</button>
         </div>
     </div>
 
@@ -875,6 +964,12 @@
         <span id="destPath" style="font-weight:600;direction:ltr"></span>
     </div>
 
+    <!-- Saved-message info card (shown when an already-tagged message is opened) -->
+    <div id="savedInfo" class="card" style="display:none;margin-top:12px">
+        <div class="card-title">✅ הודעה זו כבר נשמרה</div>
+        <div id="savedInfoBody"></div>
+    </div>
+
     <!-- Folder context menu (floating) -->
     <div id="folderCtxMenu" style="display:none;position:fixed;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:1500;min-width:170px;font-size:13px;direction:rtl;">
         <div class="ctx-item" data-action="open"    style="padding:8px 12px;cursor:pointer">📂 פתח בסייר</div>
@@ -913,6 +1008,7 @@
             <button class="sp-tab-btn active" data-sp-tab="spStampTab">סימון מצב</button>
             <button class="sp-tab-btn" data-sp-tab="spFolderTab">שם תיקיה</button>
             <button class="sp-tab-btn" data-sp-tab="spDispatchTab">הגדרות נוספות</button>
+            <button class="sp-tab-btn" data-sp-tab="spPdfTab">PDF</button>
             <button class="sp-tab-btn" data-sp-tab="spCategoryTab">קטגוריות</button>
         </div>
 
@@ -935,6 +1031,14 @@
                     <label><input type="checkbox" id="spFieldUser" /> שם המשתמש השומר</label>
                     <label><input type="checkbox" id="spFieldEmployees" /> רשימת עובדי הפרויקט</label>
                     <label><input type="checkbox" id="spFieldAttachments" /> רשימת קבצים מצורפים</label>
+
+                    <div style="margin-top:10px;font-size:12px;color:var(--muted)">כותרות ההודעה המקורית:</div>
+                    <label><input type="checkbox" id="spFieldFrom" /> מאת</label>
+                    <label><input type="checkbox" id="spFieldTo" /> אל</label>
+                    <label><input type="checkbox" id="spFieldCc" /> עותק (CC)</label>
+                    <label><input type="checkbox" id="spFieldSent" /> תאריך שליחה</label>
+                    <label><input type="checkbox" id="spFieldReceived" /> תאריך קבלה</label>
+                    <label><input type="checkbox" id="spFieldSubject" /> נושא</label>
 
                     <label style="margin-top:10px">הערה נוספת (אופציונלית):</label>
                     <input id="spStampNotes" type="text" placeholder="טקסט חופשי שיתווסף לחותמת" />
@@ -1020,6 +1124,37 @@
                 </div>
             </div>
 
+            <!-- PDF tab -->
+            <div id="spPdfTab" class="sp-tab-panel">
+                <div class="sp-section">
+                    <h3>הגדרות פלט PDF</h3>
+                    <div class="sp-hint">קובעות את גודל העמוד, הכיוון והשוליים של קובץ ה‑PDF הנשמר. הגדרות שננעלו על‑ידי מנהל המערכת מוצגות מנוטרלות.</div>
+                    <div id="spPdfLockNote" class="sp-hint" style="display:none;color:#8a6800;margin-top:6px">🔒 חלק מהגדרות ה‑PDF נקבעו על‑ידי מנהל המערכת.</div>
+
+                    <label style="margin-top:12px">גודל עמוד:</label>
+                    <select id="spPdfPageSize" style="width:100%;padding:7px 9px;border:1px solid #ccc;border-radius:4px">
+                        <option value="A4">A4 (210 × 297 מ"מ)</option>
+                        <option value="Letter">Letter (216 × 279 מ"מ)</option>
+                        <option value="Legal">Legal (216 × 356 מ"מ)</option>
+                        <option value="A3">A3 (297 × 420 מ"מ)</option>
+                    </select>
+
+                    <label style="margin-top:12px">כיוון:</label>
+                    <label><input type="radio" name="spPdfOrientation" value="portrait" /> לאורך</label>
+                    <label><input type="radio" name="spPdfOrientation" value="landscape" /> לרוחב</label>
+
+                    <label style="margin-top:12px">שוליים (ס"מ):</label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                        <label style="margin:0">עליון<input type="number" id="spPdfMarginTop"    min="0.5" max="10" step="0.01" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px" /></label>
+                        <label style="margin:0">תחתון<input type="number" id="spPdfMarginBottom" min="0.5" max="10" step="0.01" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px" /></label>
+                        <label style="margin:0">שמאל<input type="number" id="spPdfMarginLeft"   min="0.5" max="10" step="0.01" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px" /></label>
+                        <label style="margin:0">ימין<input type="number" id="spPdfMarginRight"  min="0.5" max="10" step="0.01" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px" /></label>
+                    </div>
+
+                    <label style="margin-top:12px"><input type="checkbox" id="spPdfPrintBackground" /> הדפס רקעים (צבעים, מסגרת החותמת)</label>
+                </div>
+            </div>
+
             <!-- Categories tab -->
             <div id="spCategoryTab" class="sp-tab-panel">
                 <div class="sp-section">
@@ -1100,6 +1235,30 @@
             <div id="uploadProgressBar"></div>
         </div>
         <div id="uploadProgressLabel">0%</div>
+    </div>
+
+    <!-- ============================================================
+         About panel (overlay)
+         ============================================================ -->
+    <div id="aboutPanel">
+        <div class="ab-header">
+            <button id="aboutCloseBtn" title="חזרה" type="button">←</button>
+            <strong>אודות</strong>
+        </div>
+        <div class="ab-body">
+            <img src="./assets/saveaspdf-logo.png" alt="SaveAsPDF" class="ab-logo" />
+            <div class="ab-appname">SaveAsPDF</div>
+            <div class="ab-version">גרסה <span id="aboutVersion">…</span></div>
+            <div class="ab-desc">שמירת מיילים כ‑PDF לתיקיית פרויקט — עם חותמת פרטי פרויקט, קבצים מצורפים ועץ תיקיות.</div>
+            <div class="ab-divider"></div>
+            <div class="ab-author">פותח על-ידי Ofer Aharon</div>
+            <div class="ab-contact">
+                <a href="mailto:ofer@sw-eng.co.il">ofer@sw-eng.co.il</a>
+            </div>
+            <div class="ab-pin-note">
+                💡 <b>טיפ:</b> לחץ על סמל הנעיצה 📌 שמופיע בסרגל Outlook כדי שהחלונית תישאר פתוחה בעת מעבר בין הודעות.
+            </div>
+        </div>
     </div>
 
     <!-- Always-visible credit footer -->

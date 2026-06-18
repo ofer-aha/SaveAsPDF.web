@@ -39,12 +39,10 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.6" />
     <PackageReference Include="System.Data.OleDb" Version="8.0.0" />
     <PackageReference Include="System.DirectoryServices" Version="8.0.0" />
-    <PackageReference Include="itext7" Version="8.0.5" />
-    <PackageReference Include="itext7.pdfhtml" Version="5.0.5" />
-    <PackageReference Include="itext.bouncy-castle-adapter" Version="8.0.5" />
-    <!-- Force patched BouncyCastle over the vulnerable 2.2.1 transitive dep
-         (GHSA-8xfc-gm6g-vgpv / GHSA-m44j-cfrm-g8qc / GHSA-v435-xc8x-wvr9 — fixed in 2.3.0+) -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+    <!-- PuppeteerSharp drives a headless Chromium instance for HTML→PDF rendering.
+         Chromium handles Hebrew/RTL text, bidi, and system fonts natively — no iText7
+         BiDi workarounds needed. Chromium is downloaded automatically on first use. -->
+    <PackageReference Include="PuppeteerSharp" Version="20.0.2" />
   </ItemGroup>
 
 </Project>

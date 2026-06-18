@@ -15,7 +15,12 @@ public class PolicyController : ControllerBase
         var s = _settings.Load();
         return Ok(new {
             stamp      = s.StampPolicy      ?? new StampPolicy(),
-            attachment = s.AttachmentPolicy ?? new AttachmentPolicy()
+            attachment = s.AttachmentPolicy ?? new AttachmentPolicy(),
+            // PDF settings the user can adjust + which fields the admin locked.
+            pdf = new {
+                settings = s.PdfSettings ?? new PdfSettings(),
+                policy   = s.PdfPolicy   ?? new PdfPolicy()
+            }
         });
     }
 

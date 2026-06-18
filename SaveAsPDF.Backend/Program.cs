@@ -14,6 +14,7 @@ builder.Services.AddControllers()
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<ProjectDataService>();
 builder.Services.AddSingleton<SessionService>();
+builder.Services.AddSingleton<LogService>();
 
 builder.Services.AddCors(options =>
 {
@@ -28,6 +29,14 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Apply the admin-selected Chromium build (if any) to the PDF engine on startup.
+try
+{
+    var startupSettings = app.Services.GetRequiredService<SettingsService>().Load();
+    PdfService.SetPreferredBuild(startupSettings.ChromiumBuild);
+}
+catch { /* fall back to the default pinned Chromium build */ }
+
 // ---------------------------------------------------------------
 // Auth middleware — protects /api/settings and /api/admin/* (except session endpoint).
 // The admin HTML (/admin/*) is intentionally PUBLIC — the page itself shows a login
@@ -41,9 +50,24 @@ app.Use(async (ctx, next) =>
 
     bool needsAuth =
         path.StartsWith("/api/settings", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api/logs",     StringComparison.OrdinalIgnoreCase) ||
         (path.StartsWith("/api/admin",   StringComparison.OrdinalIgnoreCase) &&
          !path.Equals("/api/admin/session",        StringComparison.OrdinalIgnoreCase) &&
          !path.StartsWith("/api/admin/session/",   StringComparison.OrdinalIgnoreCase));
+
+    // SSE stream: EventSource can't send custom headers, so also accept ?token= query param
+    if (needsAuth && path.StartsWith("/api/logs/stream", StringComparison.OrdinalIgnoreCase))
+    {
+        var qToken = ctx.Request.Query["token"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(qToken))
+        {
+            var sessions2 = ctx.RequestServices.GetRequiredService<SessionService>();
+            if (sessions2.Validate(qToken)) { await next(); return; }
+            ctx.Response.StatusCode = 401;
+            await ctx.Response.WriteAsync("Unauthorized");
+            return;
+        }
+    }
 
     if (!needsAuth) { await next(); return; }
 
