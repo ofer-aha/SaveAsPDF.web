@@ -216,6 +216,24 @@
         #logTable tr:hover td { background: #fafafa; }
         #logTable .ts  { color: #888; font-size: 12px; white-space: nowrap; font-family: Consolas, monospace; }
         #logTable .att { color: #555; font-size: 12px; }
+        /* Failure rows: the reason is shown inline underneath the entry, not only
+           as a tooltip - an admin scanning the table must see WHY a save failed. */
+        #logTable tr.err-row td,
+        #logTable tr.err-row:hover td { background: #fff; padding: 0 10px 9px; }
+        #logTable .err-detail {
+            display: flex; gap: 8px; align-items: flex-start;
+            direction: ltr; text-align: left;
+            background: #fdf2f2; color: #8a2222;
+            border-left: 3px solid #d9534f; border-radius: 4px;
+            padding: 7px 10px; font-size: 12px; line-height: 1.55;
+            font-family: Consolas, Menlo, monospace;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        #logTable .err-detail .err-lbl { font-weight: 700; white-space: nowrap; }
+        .log-pager { display: flex; align-items: center; justify-content: center;
+                     gap: 14px; margin-top: 14px; font-size: 13px; color: #555; }
+        .log-pager button:disabled { opacity: .4; cursor: default; }
+        .log-pager #logRange { min-width: 150px; text-align: center; font-variant-numeric: tabular-nums; }
 
         .lvl-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
         .lvl-success { background: #dff6dd; color: #107c10; }
@@ -363,12 +381,66 @@
             </div>
 
             <fieldset style="margin-top:20px;padding:14px 18px;border:1px solid #e5e5e5;border-radius:6px">
+                <legend style="padding:0 6px;font-size:13px;font-weight:600;color:#444">Rendering</legend>
+                <div class="hint" style="margin-top:0;margin-bottom:10px">
+                    Emails that reference images hosted on the internet (external logos, banners,
+                    tracking pixels) used to stall the renderer: this server cannot fetch them, the
+                    request never fails, and after 30 seconds you got an HTML file instead of a PDF.
+                    Leaving remote content blocked keeps rendering fast and predictable.
+                </div>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px">
+                    <input type="checkbox" id="pdfAllowRemoteContent" style="width:auto;margin-top:0"/>
+                    Allow remote content <span class="hint" style="display:inline;margin-left:4px">(only if this server has reliable internet access)</span>
+                </label>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:10px">
+                    <input type="checkbox" id="pdfAllowRemoteImages" style="width:auto;margin-top:0"/>
+                    Fetch remote images <span class="hint" style="display:inline;margin-left:4px">(signature logos hosted on a CDN &mdash; recommended ON)</span>
+                </label>
+                <div class="hint" style="margin-top:6px">
+                    Downloads only &lt;img&gt; sources, here on the server, with a deadline per image, and
+                    embeds them in the PDF. Unlike &quot;allow remote content&quot; it cannot stall the
+                    renderer: an image that does not answer in time is left out. Without this, signatures
+                    from WiseStamp, Exclaimer and the like print as their alt text (&quot;Photo&quot;,
+                    &quot;Icon&quot;). Note that such signatures often include a tracking pixel, so
+                    fetching them tells the sender the mail was archived.
+                </div>
+                <label style="margin-top:12px;display:block">
+                    Remote image timeout (ms)
+                    <input id="pdfRemoteImageTimeout" type="number" min="1000" max="15000" step="500" style="max-width:160px" />
+                </label>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:14px">
+                    <input type="checkbox" id="pdfMergePdfAttachments" style="width:auto;margin-top:0"/>
+                    Append PDF attachments <span class="hint" style="display:inline;margin-left:4px">(adds their pages to the end of the generated PDF)</span>
+                </label>
+                <div class="hint" style="margin-top:6px">
+                    Attachments are always written as separate files next to the PDF. This adds a
+                    combined copy. Only PDF attachments can be appended; Word files, images and
+                    embedded e-mails are unaffected.
+                </div>
+                <div class="hint" style="margin-top:6px">
+                    <b>This is now a per-user setting</b>, off by default, which each user turns on in
+                    the taskpane under Settings &rarr; &quot;&#1505;&#1497;&#1502;&#1493;&#1503; &#1502;&#1510;&#1489;&quot;. The box above only takes
+                    effect when &quot;Append PDF attachments &mdash; admin-controlled&quot; is ticked below, which
+                    forces this value for everyone and disables their toggle.
+                </div>
+                <label style="margin-top:12px;display:block">
+                    Render timeout (ms)
+                    <input id="pdfRenderTimeout" type="number" min="2000" max="120000" step="1000" style="max-width:160px" />
+                </label>
+                <div class="hint" style="margin-top:6px">
+                    2000-120000. If the page still has not settled, the PDF is produced from
+                    whatever has rendered rather than failing to an HTML file.
+                </div>
+            </fieldset>
+
+            <fieldset style="margin-top:20px;padding:14px 18px;border:1px solid #e5e5e5;border-radius:6px">
                 <legend style="padding:0 6px;font-size:13px;font-weight:600;color:#444">Admin control (lock in user taskpane)</legend>
                 <div class="hint" style="margin-top:0;margin-bottom:10px">Locked settings are forced to the values above and disabled in each user's taskpane. Unlocked settings can be changed per-user.</div>
                 <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockPageSize"        style="width:auto;margin-top:0"/> Page size — admin-controlled</label>
                 <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockOrientation"     style="width:auto;margin-top:0"/> Orientation — admin-controlled</label>
                 <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockMargins"         style="width:auto;margin-top:0"/> Margins — admin-controlled</label>
                 <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockPrintBackground" style="width:auto;margin-top:0"/> Print background — admin-controlled</label>
+                <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="pdfLockMergePdfAttachments" style="width:auto;margin-top:0"/> Append PDF attachments — admin-controlled</label>
             </fieldset>
 
             <button type="button" id="pdfSaveBtn" onclick="savePdfSettings()">Save PDF Settings</button>
@@ -377,13 +449,18 @@
 
         <div class="card">
             <h2>PDF Engine</h2>
-            <div class="hint" style="margin-top:0">The PDF is rendered by a headless Chromium browser (via PuppeteerSharp). You can pull the latest Chromium build below.</div>
+            <div class="hint" style="margin-top:0">The PDF is rendered by a headless Chromium browser (via PuppeteerSharp). You can pull the latest Chromium build below, or switch back to an older / the pinned build if a newer Chromium turns out to be incompatible with this PuppeteerSharp version.</div>
             <div class="probe-info" style="margin-top:14px">
                 <div class="probe-info-row"><div class="lbl">Engine</div><div class="val" id="engEngine">—</div></div>
                 <div class="probe-info-row"><div class="lbl">PuppeteerSharp</div><div class="val" id="engPuppeteer">—</div></div>
                 <div class="probe-info-row"><div class="lbl">Current build</div><div class="val" id="engCurrent">—</div></div>
                 <div class="probe-info-row"><div class="lbl">Installed builds</div><div class="val" id="engInstalled">—</div></div>
                 <div class="probe-info-row"><div class="lbl">Cache dir</div><div class="val path" id="engCacheDir">—</div></div>
+            </div>
+            <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label for="engSelect" style="font-size:12px;color:#555">Use build</label>
+                <select id="engSelect" style="min-width:220px"></select>
+                <button type="button" class="secondary" id="engApplyBtn" onclick="selectEngine()">Apply</button>
             </div>
             <button type="button" id="engUpdateBtn" onclick="updateEngine()">⬇ Update to latest Chromium</button>
             <button type="button" class="secondary" onclick="loadEngine()" style="margin-left:8px">↻ Refresh</button>
@@ -432,6 +509,12 @@
                 <input type="date" id="filterFrom" onchange="loadLogs()" />
                 <input type="date" id="filterTo"   onchange="loadLogs()" />
                 <button type="button" class="secondary" onclick="clearFilters()">✕ Clear filters</button>
+                <select id="logPageSize" onchange="changeLogPageSize()" title="Entries shown per page">
+                    <option value="10">Last 10</option>
+                    <option value="25" selected>Last 25</option>
+                    <option value="50">Last 50</option>
+                    <option value="100">Last 100</option>
+                </select>
             </div>
             <div style="overflow-x:auto">
                 <table id="logTable">
@@ -445,6 +528,11 @@
                     </tr></thead>
                     <tbody id="logBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
                 </table>
+            </div>
+            <div class="log-pager" id="logPager">
+                <button type="button" class="secondary" id="logPrevBtn" onclick="logPage(-1)">‹ Previous</button>
+                <span id="logRange">—</span>
+                <button type="button" class="secondary" id="logNextBtn" onclick="logPage(1)">Next ›</button>
             </div>
         </div>
     </div>
@@ -671,10 +759,16 @@
             document.getElementById('pdfMarginLeft').value=(s.marginLeftCm??2.54).toFixed(2);
             document.getElementById('pdfMarginRight').value=(s.marginRightCm??2.54).toFixed(2);
             document.getElementById('pdfPrintBackground').checked=s.printBackground!==false;
+            document.getElementById('pdfAllowRemoteContent').checked=s.allowRemoteContent===true;
+            document.getElementById('pdfRenderTimeout').value=s.renderTimeoutMs||15000;
+            document.getElementById('pdfAllowRemoteImages').checked=s.allowRemoteImages!==false;
+            document.getElementById('pdfRemoteImageTimeout').value=s.remoteImageTimeoutMs||4000;
+            document.getElementById('pdfMergePdfAttachments').checked=s.mergePdfAttachments===true;
             document.getElementById('pdfLockPageSize').checked=!!p.pageSize;
             document.getElementById('pdfLockOrientation').checked=!!p.orientation;
             document.getElementById('pdfLockMargins').checked=!!p.margins;
             document.getElementById('pdfLockPrintBackground').checked=!!p.printBackground;
+            document.getElementById('pdfLockMergePdfAttachments').checked=!!p.mergePdfAttachments;
         }catch{}
     }
     async function savePdfSettings(){
@@ -687,13 +781,19 @@
                 marginBottomCm:parseFloat(document.getElementById('pdfMarginBottom').value)||2.54,
                 marginLeftCm:parseFloat(document.getElementById('pdfMarginLeft').value)||2.54,
                 marginRightCm:parseFloat(document.getElementById('pdfMarginRight').value)||2.54,
-                printBackground:document.getElementById('pdfPrintBackground').checked
+                printBackground:document.getElementById('pdfPrintBackground').checked,
+                allowRemoteContent:document.getElementById('pdfAllowRemoteContent').checked,
+                renderTimeoutMs:Math.min(120000,Math.max(2000,parseInt(document.getElementById('pdfRenderTimeout').value,10)||15000)),
+                allowRemoteImages:document.getElementById('pdfAllowRemoteImages').checked,
+                remoteImageTimeoutMs:Math.min(15000,Math.max(1000,parseInt(document.getElementById('pdfRemoteImageTimeout').value,10)||4000)),
+                mergePdfAttachments:document.getElementById('pdfMergePdfAttachments').checked
             };
             const policy={
                 pageSize:document.getElementById('pdfLockPageSize').checked,
                 orientation:document.getElementById('pdfLockOrientation').checked,
                 margins:document.getElementById('pdfLockMargins').checked,
-                printBackground:document.getElementById('pdfLockPrintBackground').checked
+                printBackground:document.getElementById('pdfLockPrintBackground').checked,
+                mergePdfAttachments:document.getElementById('pdfLockMergePdfAttachments').checked
             };
             const res=await authFetch('/api/settings/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,policy})});
             if(res.ok){const locked=Object.values(policy).filter(Boolean).length;showStatus('pdfStatus','PDF settings saved.'+(locked?` ${locked} field(s) admin-controlled.`:''),true);}
@@ -713,7 +813,30 @@
             document.getElementById('engCurrent').textContent=e.currentBuild||'—';
             document.getElementById('engInstalled').textContent=(e.installedBuilds&&e.installedBuilds.length)?e.installedBuilds.join(', '):'(none)';
             document.getElementById('engCacheDir').textContent=e.cacheDir||'—';
+            const sel=document.getElementById('engSelect');
+            sel.innerHTML='';
+            const mk=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);};
+            mk('','(default pinned build)');
+            (e.installedBuilds||[]).forEach(b=>mk(b,b));
+            sel.value=e.configuredBuild||'';
         }catch{}
+    }
+    async function selectEngine(){
+        const sel=document.getElementById('engSelect'), btn=document.getElementById('engApplyBtn');
+        const build=sel.value;
+        btn.disabled=true;
+        showStatus('engStatus','Switching engine… (a build that is not installed yet will be downloaded)',true);
+        try{
+            const res=await authFetch('/api/settings/pdf/engine/select',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({build:build})
+            });
+            const d=await res.json().catch(()=>({}));
+            if(res.ok){showStatus('engStatus','Engine switched. Current build: '+d.currentBuild,true);loadEngine();}
+            else{showStatus('engStatus',d.error||`Switch failed (${res.status})`,false);}
+        }catch(e){showStatus('engStatus','Switch failed: '+e.message,false);}
+        finally{btn.disabled=false;}
     }
     async function updateEngine(){
         const btn=document.getElementById('engUpdateBtn');btn.disabled=true;
@@ -779,31 +902,72 @@
         const p=new URLSearchParams();
         if(level)p.set('level',level);if(search)p.set('search',search);
         if(from)p.set('from',from+'T00:00:00');if(to)p.set('to',to+'T23:59:59');
-        try{const rows=await(await authFetch('/api/logs?'+p)).json();renderLogTable(rows);}catch{}
+        try{const rows=await(await authFetch('/api/logs?'+p)).json();setLogRows(rows);}catch{}
+    }
+
+    // ── Paging ────────────────────────────────────────────────────────────────
+    // The API returns every entry matching the filters (newest first); paging is
+    // done client-side so page changes cost no round trip and the live SSE feed
+    // keeps working. _logRows is the single source of truth for the table.
+    let _logRows=[], _logPage=0, _logPageSize=25;
+
+    function setLogRows(rows){ _logRows=rows||[]; _logPage=0; renderLogTable(); }
+    function changeLogPageSize(){
+        _logPageSize=parseInt(document.getElementById('logPageSize').value,10)||25;
+        _logPage=0; renderLogTable();
+    }
+    function logPageCount(){ return Math.max(1, Math.ceil(_logRows.length/_logPageSize)); }
+    function logPage(delta){
+        const next=_logPage+delta;
+        if(next<0||next>=logPageCount())return;
+        _logPage=next; renderLogTable();
+    }
+    function renderPager(){
+        const total=_logRows.length, pages=logPageCount();
+        if(_logPage>=pages)_logPage=pages-1;
+        const first=total===0?0:_logPage*_logPageSize+1;
+        const last =Math.min(total,(_logPage+1)*_logPageSize);
+        document.getElementById('logRange').textContent =
+            total===0 ? 'No entries' : `${first}–${last} of ${total}`;
+        document.getElementById('logPrevBtn').disabled=(_logPage<=0);
+        document.getElementById('logNextBtn').disabled=(_logPage>=pages-1);
+        document.getElementById('logPager').style.display = total>_logPageSize ? 'flex' : 'none';
     }
     function levelBadge(level){
         const cls={success:'lvl-success',warning:'lvl-warning',error:'lvl-error',info:'lvl-info'}[level?.toLowerCase()]??'lvl-info';
         const icon={success:'✅',warning:'⚠️',error:'❌',info:'ℹ️'}[level?.toLowerCase()]??'';
         return `<span class="lvl-badge ${cls}">${icon} ${escapeHtml(level)}</span>`;
     }
+    // Any entry that is not a success gets its reason rendered under the row.
+    // ErrorDetail is set by SaveAsPdfController from PdfResult.FallbackReason.
+    function isFailure(r){ return (r.level||'').toLowerCase()!=='success'; }
+    function errRowHtml(r){
+        if(!isFailure(r) && !r.errorDetail) return '';
+        const txt=r.errorDetail||'No error detail was recorded for this entry.';
+        return `<tr class="err-row"><td colspan="6"><div class="err-detail">`
+             + `<span class="err-lbl">Error:</span><span>${escapeHtml(txt)}</span></div></td></tr>`;
+    }
     function fmtTs(iso){try{return new Date(iso).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});}catch{return iso;}}
-    function renderLogTable(rows){
+    function renderLogTable(){
         const tbody=document.getElementById('logBody');
-        document.getElementById('logCount').textContent=rows.length>0?`(${rows.length})`:'';
-        if(rows.length===0){tbody.innerHTML=`<tr><td colspan="6" class="log-empty">No log entries match the current filters.</td></tr>`;return;}
+        document.getElementById('logCount').textContent=_logRows.length>0?`(${_logRows.length})`:'';
+        renderPager();
+        if(_logRows.length===0){tbody.innerHTML=`<tr><td colspan="6" class="log-empty">No log entries match the current filters.</td></tr>`;return;}
+        const rows=_logRows.slice(_logPage*_logPageSize,(_logPage+1)*_logPageSize);
         tbody.innerHTML=rows.map(r=>{
             const atts=(r.attachments||[]).map(a=>escapeHtml(a)).join('<br/>');
-            return `<tr${r.errorDetail?` title="${escapeHtml(r.errorDetail)}"`:''}>
+            return `<tr>
                 <td class="ts">${escapeHtml(fmtTs(r.timestamp))}</td><td>${levelBadge(r.level)}</td>
                 <td>${escapeHtml(r.username||'—')}</td>
                 <td style="direction:rtl;text-align:right">${escapeHtml(r.subject||'—')}</td>
                 <td class="att">${atts||'—'}</td>
-                <td${r.projectName?` title="${escapeHtml(r.projectName)}"`:''} >${escapeHtml(r.projectId||'—')}</td></tr>`;
+                <td${r.projectName?` title="${escapeHtml(r.projectName)}"`:''} >${escapeHtml(r.projectId||'—')}</td></tr>`
+                + errRowHtml(r);
         }).join('');
     }
     async function clearLogs(){
         if(!confirm('Clear all log entries? This cannot be undone.'))return;
-        try{await authFetch('/api/logs',{method:'DELETE'});renderLogTable([]);document.getElementById('logCount').textContent='';}catch{}
+        try{await authFetch('/api/logs',{method:'DELETE'});setLogRows([]);}catch{}
     }
     async function exportCsv(){
         const level=document.getElementById('filterLevel').value,search=document.getElementById('filterSearch').value.trim(),
@@ -836,19 +1000,22 @@
     }
     function stopLive(){if(_eventSource){_eventSource.close();_eventSource=null;}}
     function prependLogRow(r){
-        const tbody=document.getElementById('logBody');
-        const empty=tbody.querySelector('.log-empty');if(empty)empty.parentElement.remove();
+        // Apply the active filters client-side so a live entry never appears in a
+        // filtered view it does not belong to.
         const level=document.getElementById('filterLevel').value,search=document.getElementById('filterSearch').value.trim().toLowerCase();
         if(level&&r.level?.toLowerCase()!==level)return;
         if(search&&![r.username,r.subject,r.projectId,...(r.attachments||[])].some(v=>(v||'').toLowerCase().includes(search)))return;
-        const tr=document.createElement('tr');if(r.errorDetail)tr.title=r.errorDetail;
-        tr.innerHTML=`<td class="ts">${escapeHtml(fmtTs(r.timestamp))}</td><td>${levelBadge(r.level)}</td>
-            <td>${escapeHtml(r.username||'—')}</td><td style="direction:rtl;text-align:right">${escapeHtml(r.subject||'—')}</td>
-            <td class="att">${(r.attachments||[]).map(a=>escapeHtml(a)).join('<br/>')||'—'}</td>
-            <td${r.projectName?` title="${escapeHtml(r.projectName)}"`:''} >${escapeHtml(r.projectId||'—')}</td>`;
-        tr.style.background='#fffbe6';setTimeout(()=>{tr.style.background='';},2500);
-        tbody.insertBefore(tr,tbody.firstChild);
-        const n=tbody.querySelectorAll('tr').length;document.getElementById('logCount').textContent=n>0?`(${n})`:'';
+
+        // Feed the paging model, not the DOM: the new entry is newest so it goes
+        // to the front. It is only visible right now if the user is on page 1.
+        _logRows.unshift(r);
+        const onFirstPage=(_logPage===0);
+        renderLogTable();
+
+        if(onFirstPage){
+            const tr=document.getElementById('logBody').querySelector('tr');
+            if(tr){tr.style.background='#fffbe6';setTimeout(()=>{tr.style.background='';},2500);}
+        }
     }
 
     // ── Bootstrap ──────────────────────────────────────────────────────────────

@@ -15,8 +15,15 @@ public static class ProjectPathResolver
         projectNumber = NormalizeProjectNumber(projectNumber);
         string normalizedRoot = NormalizeRootPath(rootDrive);
 
+        // SECURITY: an unrecognised project number used to fall back to the projects
+        // ROOT. That silently turned every caller into an operator on the entire
+        // share - most dangerously FoldersController, whose DELETE (recursive) would
+        // then happily remove a whole level-1 directory of projects, and SaveAsPdf,
+        // which would scatter PDFs at the root. Refuse instead: a bad identifier is a
+        // client bug, not a licence to touch everything.
         if (!projectNumber.SafeProjectID())
-            return new DirectoryInfo(normalizedRoot);
+            throw new ArgumentException(
+                $"'{projectNumber}' is not a valid project number.", nameof(projectNumber));
 
         string[] split = projectNumber.Split('-');
         string firstPart = split[0];

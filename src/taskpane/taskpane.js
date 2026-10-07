@@ -18,6 +18,88 @@ function escHtml(s) {
 }
 
 // =====================================================================
+// "Backend is sleeping" fun screen — shown when the server can't be reached
+// =====================================================================
+function isNetworkError(err) {
+    // sendToBackend rejects with a Hebrew message, so matching only English fetch
+    // wording meant a network failure during Save skipped the "server is sleeping"
+    // screen every other path shows and produced a generic red error instead.
+    return err instanceof TypeError ||
+           /failed to fetch|networkerror|load failed|abort|timeout/i.test(err?.message || "") ||
+           /שגיאת רשת|לא ניתן להגיע לשרת|פסק זמן/.test(err?.message || "");
+}
+
+function showSleepingScreen() {
+    if (document.getElementById("sleepOverlay")) return;
+    const div = document.createElement("div");
+    div.id  = "sleepOverlay";
+    div.dir = "rtl";
+    div.style.cssText =
+        "position:fixed;inset:0;z-index:9999;background:linear-gradient(180deg,#1a2340 0%,#2c3a63 100%);" +
+        "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+        "text-align:center;padding:24px;font-family:'Segoe UI',Arial,sans-serif;color:#f5f2e8";
+    div.innerHTML = `
+      <svg width="210" height="170" viewBox="0 0 210 170" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- moon + stars -->
+        <circle cx="178" cy="26" r="14" fill="#f7e8a4"/>
+        <circle cx="172" cy="22" r="12" fill="#2c3a63"/>
+        <circle cx="30" cy="18" r="2" fill="#f7e8a4"/>
+        <circle cx="60" cy="34" r="1.5" fill="#f7e8a4"/>
+        <circle cx="140" cy="14" r="1.7" fill="#f7e8a4"/>
+        <!-- Zzz -->
+        <text x="150" y="66" font-size="20" fill="#9fd0ff" font-weight="bold">Z</text>
+        <text x="163" y="52" font-size="14" fill="#9fd0ff" font-weight="bold">z</text>
+        <text x="173" y="42" font-size="10" fill="#9fd0ff" font-weight="bold">z</text>
+        <!-- bed -->
+        <rect x="18" y="128" width="174" height="12" rx="6" fill="#7a5a3a"/>
+        <rect x="22" y="138" width="10" height="20" rx="3" fill="#7a5a3a"/>
+        <rect x="178" y="138" width="10" height="20" rx="3" fill="#7a5a3a"/>
+        <!-- pillow -->
+        <rect x="26" y="106" width="44" height="24" rx="10" fill="#e8e4f5"/>
+        <!-- server with a sleepy face -->
+        <rect x="52" y="78" width="64" height="52" rx="8" fill="#8fa3c8" stroke="#5c6f94" stroke-width="2"/>
+        <circle cx="106" cy="88" r="3" fill="#65d06e"/>
+        <rect x="60" y="116" width="40" height="4" rx="2" fill="#5c6f94"/>
+        <!-- closed eyes -->
+        <path d="M66 98 q5 6 10 0" stroke="#2c3a63" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path d="M88 98 q5 6 10 0" stroke="#2c3a63" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <!-- sleepy mouth -->
+        <circle cx="82" cy="110" r="3" fill="#2c3a63"/>
+        <!-- nightcap -->
+        <path d="M52 82 q10 -22 46 -14 l-8 12 z" fill="#d9534f"/>
+        <circle cx="100" cy="66" r="5" fill="#f7e8a4"/>
+        <!-- blanket over the server -->
+        <path d="M44 130 q62 -26 148 -4 l0 4 z" fill="#4f74b3"/>
+        <path d="M44 130 q62 -26 148 -4" stroke="#3c5c96" stroke-width="2" fill="none"/>
+      </svg>
+      <div style="font-size:22px;font-weight:600;margin-top:14px">אני ישן עכשיו... 😴</div>
+      <div style="font-size:16px;margin-top:8px">תגידו לעופר שלא בא לי לעבוד 🙃</div>
+      <div style="font-size:11px;opacity:.65;margin-top:10px">(השרת לא זמין כרגע — נסו שוב עוד כמה דקות)</div>
+      <button id="sleepRetryBtn" type="button"
+        style="margin-top:18px;padding:8px 22px;font-size:14px;border:none;border-radius:20px;
+               background:#f7e8a4;color:#1a2340;font-weight:600;cursor:pointer">
+        נסה להעיר אותי ⏰
+      </button>`;
+    document.body.appendChild(div);
+    document.getElementById("sleepRetryBtn").onclick = async () => {
+        const btn = document.getElementById("sleepRetryBtn");
+        btn.disabled = true; btn.textContent = "מנסה להעיר... ⏰";
+        try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 6000);
+            const res = await fetch(`${BACKEND_BASE}/api/info`, { signal: ctrl.signal, cache: "no-store" });
+            clearTimeout(t);
+            if (!res.ok) throw new Error("still down");
+            div.remove();
+            location.reload();
+        } catch {
+            btn.textContent = "עדיין ישן... נסה שוב 😴";
+            btn.disabled = false;
+        }
+    };
+}
+
+// =====================================================================
 // Office initialization
 // =====================================================================
 Office.onReady(() => {
@@ -30,7 +112,7 @@ Office.onReady(() => {
         fetch(`${BACKEND_BASE}/api/info`)
             .then(r => r.json())
             .then(j => { if (j.version) { versionEl.textContent = j.version; _liveVersion = j.version; } })
-            .catch(() => {});
+            .catch(() => showSleepingScreen());
     }
 
     document.getElementById("saveBtn").onclick      = onSaveAsPdf;
@@ -164,6 +246,9 @@ function reloadForCurrentItem() {
     _employees.length = 0;
     renderEmployees();
 
+    // The unticked-attachment memory is per message, not per session.
+    _uncheckedAttachmentIds = new Set();
+
     // Reset folder tree / destination banner back to "no project loaded" state
     _folderTree         = null;
     _treeProjectNumber  = "";
@@ -286,6 +371,8 @@ async function loadProjectByNumber() {
         if (!data.exists) {
             status.innerText = `הפרויקט לא נמצא בתיקייה: ${data.expectedPath || ""}`;
             _folderTree = null;
+            _selectedFolderPath = "";
+            _treeProjectNumber  = "";
             renderFolderTree();
             updateDestBanner();
 
@@ -336,9 +423,9 @@ async function loadProjectByNumber() {
             const leader = _employees.find(e => e.isLeader);
             if (leader) {
                 const lin = document.getElementById("projectLeader");
-                lin.value = leader.displayName
-                    ? `${leader.displayName}  <${leader.email}>`
-                    : leader.email;
+                // Show the human name (<FirstName> <LastName> from the employees XML);
+                // the address stays in dataset.email for sending/forwarding.
+                lin.value = (leader.displayName || "").trim() || leader.email;
                 lin.dataset.email = leader.email;
             }
             renderEmployees();
@@ -457,9 +544,26 @@ function isSigImage(att) {
     return isImg && att.size > 0 && att.size <= t;
 }
 
+// Ids the user explicitly unticked for the current message. loadAttachments is
+// re-run whenever the backend health check flips down->up and after the policy
+// fetch, and it used to hard-code checked on every box - so a transient server
+// blip silently re-selected attachments the user had deliberately excluded, and
+// they were written to the project folder on the next save.
+let _uncheckedAttachmentIds = new Set();
+
+function rememberAttachmentSelection() {
+    document.querySelectorAll(".att-check").forEach(cb => {
+        if (cb.checked) _uncheckedAttachmentIds.delete(cb.dataset.id);
+        else            _uncheckedAttachmentIds.add(cb.dataset.id);
+    });
+}
+
 function loadAttachments() {
     const item      = Office.context.mailbox.item;
     const container = document.getElementById("attachmentsTab");
+
+    // Capture the current state before the list is rebuilt.
+    rememberAttachmentSelection();
 
     if (!item || !item.attachments || item.attachments.length === 0) {
         container.innerHTML = "<p>אין קבצים מצורפים</p>";
@@ -478,7 +582,7 @@ function loadAttachments() {
 
     let html = visible.map(att => `
         <label style="display:flex;align-items:center;gap:8px;margin-top:8px">
-            <input type="checkbox" class="att-check" data-id="${escHtml(att.id)}" checked />
+            <input type="checkbox" class="att-check" data-id="${escHtml(att.id)}" ${_uncheckedAttachmentIds.has(att.id) ? "" : "checked"} />
             <span>${escHtml(att.name)} <span style="color:#888;font-size:12px">(${escHtml(formatSize(att.size))})</span></span>
         </label>
     `).join("");
@@ -587,7 +691,11 @@ const DEFAULT_PREFS = {
         marginBottomCm:  2.54,
         marginLeftCm:    2.54,
         marginRightCm:   2.54,
-        printBackground: true
+        printBackground: true,
+        // Append PDF attachments into the generated PDF. Off by default: the
+        // attachments are always written as separate files anyway, so the
+        // combined copy is opt-in. An admin lock (PdfPolicy) overrides this.
+        mergePdfAttachments: false
     }
 };
 
@@ -647,6 +755,10 @@ const POLICY_FIELD_MAP = {
     includeSubject:      "spFieldSubject"
 };
 
+// Folder DELETE is admin-gated server-side. Showing the menu item to everyone led
+// users through a "cannot be undone" confirmation to a bare "401".
+let _isAdmin = false;
+
 async function checkAdminAccess() {
     try {
         const email = Office.context.mailbox?.userProfile?.emailAddress;
@@ -654,7 +766,8 @@ async function checkAdminAccess() {
         const res = await fetch(`${BACKEND_BASE}/api/policy/is-admin?email=${encodeURIComponent(email)}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (data.isAdmin) document.getElementById("adminLink").style.display = "";
+        _isAdmin = !!data.isAdmin;
+        if (_isAdmin) document.getElementById("adminLink").style.display = "";
     } catch { /* AD unavailable or non-domain machine — admin link stays hidden */ }
 }
 
@@ -743,13 +856,14 @@ function applyPolicyLocks() {
     }
 }
 
-function applyPrefsToCheckboxes() {
-    const optStamp = document.getElementById("optStamp");
-    const forcedStamp = policyForcedValue("defaultStamp");
-    optStamp.checked = forcedStamp !== null ? forcedStamp : !!_prefs.defaultStamp;
-    optStamp.disabled = forcedStamp !== null;
-    optStamp.title = forcedStamp !== null ? "🔒 ההגדרה נקבעה על-ידי מנהל המערכת" : "";
+// The in-body stamp is no longer a task-pane checkbox - it is configured once on
+// the settings page (and may be locked by admin policy). Resolve it from prefs.
+function stampEnabled() {
+    const forced = policyForcedValue("defaultStamp");
+    return forced !== null ? !!forced : !!_prefs.defaultStamp;
+}
 
+function applyPrefsToCheckboxes() {
     const catCb = document.getElementById("optCategory");
     catCb.checked = !!_prefs.defaultCategory;
     document.getElementById("categoryRow").style.display = _prefs.defaultCategory ? "" : "none";
@@ -847,6 +961,8 @@ function openSettingsPanel() {
     document.getElementById("spPdfMarginLeft").value   = Number(pdf.marginLeftCm   ?? 2.54).toFixed(2);
     document.getElementById("spPdfMarginRight").value  = Number(pdf.marginRightCm  ?? 2.54).toFixed(2);
     document.getElementById("spPdfPrintBackground").checked = pdf.printBackground !== false;
+    // Default off, so test for an explicit true rather than "not false".
+    document.getElementById("spMergePdfAttachments").checked = pdf.mergePdfAttachments === true;
 
     // Locks any fields the admin has forced (must run after the inputs are populated).
     applyPolicyLocks();
@@ -880,6 +996,16 @@ function applyPdfPolicyLocks() {
     const pb = document.getElementById("spPdfPrintBackground");
     if (pol.printBackground) { pb.checked = adm.printBackground !== false; pb.disabled = true; }
     else pb.disabled = false;
+
+    // Lives in the "סימון מצב" tab rather than the PDF tab, so it carries its own
+    // locked note instead of the shared spPdfLockNote below.
+    const mg = document.getElementById("spMergePdfAttachments");
+    if (mg) {
+        if (pol.mergePdfAttachments) { mg.checked = adm.mergePdfAttachments === true; mg.disabled = true; }
+        else mg.disabled = false;
+        const mgNote = document.getElementById("spMergePdfLockNote");
+        if (mgNote) mgNote.style.display = pol.mergePdfAttachments ? "block" : "none";
+    }
 
     const anyLocked = !!(pol.pageSize || pol.orientation || pol.margins || pol.printBackground);
     document.getElementById("spPdfLockNote").style.display = anyLocked ? "block" : "none";
@@ -942,7 +1068,8 @@ function saveSettingsPanel() {
         marginBottomCm:  clampCm(document.getElementById("spPdfMarginBottom").value),
         marginLeftCm:    clampCm(document.getElementById("spPdfMarginLeft").value),
         marginRightCm:   clampCm(document.getElementById("spPdfMarginRight").value),
-        printBackground: document.getElementById("spPdfPrintBackground").checked
+        printBackground: document.getElementById("spPdfPrintBackground").checked,
+        mergePdfAttachments: document.getElementById("spMergePdfAttachments").checked
     };
 
     savePrefs();
@@ -976,10 +1103,16 @@ function renderSubfolderList() {
     });
 }
 
-function addSubfolder() {
+async function addSubfolder() {
     const input = document.getElementById("spSubfolderInput");
-    const name = (input.value || "").trim();
-    if (!name) return;
+    // These names become real folders later, so they follow the same rules.
+    const chk = checkFolderName(input.value || "");
+    if (!chk.ok) {
+        if (chk.code !== "empty") await dlgAlert("שם לא תקין", chk.message);
+        return;
+    }
+    const name = chk.value;
+    input.value = name;
     if (_spSubfolderList.includes(name)) {
         input.value = "";
         _spSubfolderSelected = name;
@@ -997,7 +1130,7 @@ async function renameSubfolder() {
         await dlgAlert("שינוי שם", "בחר/י תיקיה מהרשימה תחילה.");
         return;
     }
-    const r = await dlgPrompt("שינוי שם תיקיה", _spSubfolderSelected, "שמור");
+    const r = await dlgFolderName("שינוי שם תיקיה", _spSubfolderSelected, "שמור", "rename");
     if (!r.ok) return;
     const newName = (r.value || "").trim();
     if (!newName || newName === _spSubfolderSelected) return;
@@ -1016,8 +1149,10 @@ async function deleteSubfolder() {
         await dlgAlert("הסרה", "בחר/י תיקיה מהרשימה תחילה.");
         return;
     }
-    const ok = await dlgConfirm("הסרה מהרשימה", `להסיר את "${_spSubfolderSelected}" מהרשימה?`);
-    if (!ok) return;
+    // dlg() resolves with an object, so the old `if (!ok)` was never true and
+    // Cancel removed the entry anyway. Every other call site uses r.ok.
+    const r = await dlgConfirm("הסרה מהרשימה", `להסיר את "${_spSubfolderSelected}" מהרשימה?`);
+    if (!r.ok) return;
     _spSubfolderList = _spSubfolderList.filter(n => n !== _spSubfolderSelected);
     _spSubfolderSelected = "";
     renderSubfolderList();
@@ -1031,7 +1166,11 @@ function clearSubfolderDefault() {
 // Resolves the destination sub-folder for a save operation.
 // Manual selection in the folder tree (if any) wins over the prefs default.
 function resolveSaveDestination() {
-    if (_selectedFolderPath) return _selectedFolderPath;
+    // Second line of defence behind the reset in loadFolderTree: only trust the
+    // selection if the tree it came from belongs to the project being saved to.
+    const currentProject = (document.getElementById("projectId")?.value || "").trim();
+    if (_selectedFolderPath && _treeProjectNumber === currentProject)
+        return _selectedFolderPath;
     const ds = _prefs.defaultSubfolders;
     if (!ds || !ds.selected) return "";
     if (!ds.appendDate) return ds.selected;
@@ -1304,6 +1443,125 @@ function createNewCategory() {
 }
 
 // =====================================================================
+// Folder name rules (mirror of FolderNameRules.cs on the backend)
+// =====================================================================
+// Two different failure modes, deliberately handled differently:
+//   * illegal characters  -> stripped as the user types, no nagging
+//   * escape attempts     -> blocked, red warning, and reported to the server
+//                            so the attempt is logged
+// This is UX only. The backend enforces the same rules and is the real
+// boundary; never rely on these checks for security.
+
+const RESERVED_NAME_RE  = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\..*)?$/i;
+// Narrow on purpose: a bare "%2e" can occur in a legitimate name, an encoded
+// separator cannot.
+const ENCODED_TRAVERSAL = /%2f|%5c|%2e%2e/i;
+const DRIVE_RE          = /^[A-Za-z]:/;
+const FOLDER_NAME_MAX   = 200;
+
+// Character filter only - safe to run on every keystroke. It must NOT trim, or
+// the user could never type a space between two words.
+function stripIllegalFolderChars(raw) {
+    if (!raw) return "";
+    let s = "";
+    for (const ch of raw) {
+        const code = ch.codePointAt(0);
+        if (code < 32 || code === 127) continue;
+        if ("<>:|?*\"".indexOf(ch) >= 0) continue;
+        s += ch;
+    }
+    return s;
+}
+
+// Strip what Windows cannot store, leaving the user's intent intact.
+function sanitizeFolderName(raw) {
+    if (!raw) return "";
+    let s = "";
+    for (const ch of raw) {
+        const code = ch.codePointAt(0);
+        if (code < 32 || code === 127) continue;      // control chars
+        if ("<>:|?*\"".indexOf(ch) >= 0) continue;    // illegal in a Windows name
+        s += ch;
+    }
+    s = s.replace(/\s+/g, " ").trim().replace(/[. ]+$/, "");
+    if (s.length > FOLDER_NAME_MAX) s = s.slice(0, FOLDER_NAME_MAX).replace(/[. ]+$/, "");
+    return s;
+}
+
+// Returns { ok, value, code, security, message }.
+// message is Hebrew - it is shown directly in the taskpane.
+//
+// Judged on the RAW text: sanitizing first would turn "..\..\x" into "....x"
+// and hide the attempt.
+//
+// Note what is NOT blocked: ".." inside a name. "as..as" is an ordinary folder
+// name. Dots only navigate when they form a whole path segment, and separators
+// are refused outright, so the only dangerous case left is a name made of
+// nothing but dots.
+function checkFolderName(raw) {
+    raw = raw || "";
+    const trimmed = raw.trim();
+
+    // Order matters. Each check below runs on the RAW text and must run before
+    // sanitizing, which would erase the very evidence being looked for - it
+    // strips trailing dots, so "..'" would arrive here as an empty string and be
+    // reported as "no name" instead of as a traversal attempt.
+
+    // A name made only of dots IS a path segment: ".." resolves to the parent.
+    if (trimmed.length > 0 && /^\.+$/.test(trimmed))
+        return { ok: false, value: "", code: "traversal", security: true,
+                 message: "שם תיקיה לא יכול להיות מורכב מנקודות בלבד. בחר/י שם אחר." };
+
+    // Before the separator check: "C:\\Windows" is a drive escape, not a typo.
+    if (DRIVE_RE.test(trimmed))
+        return { ok: false, value: "", code: "traversal", security: true,
+                 message: "שם תיקיה לא יכול להתחיל באות כונן (למשל C:). בחר/י שם אחר." };
+
+    if (ENCODED_TRAVERSAL.test(raw))
+        return { ok: false, value: "", code: "traversal", security: true,
+                 message: "השם מכיל תו נתיב מקודד. בחר/י שם אחר." };
+
+    const hasSeparator = raw.indexOf("/") >= 0 || raw.indexOf("\\") >= 0;
+
+    // A separator together with ".." is the classic escape attempt.
+    if (hasSeparator && raw.indexOf("..") >= 0)
+        return { ok: false, value: "", code: "traversal", security: true,
+                 message: "השם מכיל רצף של מעבר בין תיקיות. בחר/י שם אחר." };
+
+    // A separator on its own is a usability problem, not an attack: the user is
+    // trying to create a folder and a subfolder in one step.
+    if (hasSeparator)
+        return { ok: false, value: "", code: "separator", security: false,
+                 message: "לא ניתן ליצור תיקיה ותת-תיקיה בפעולה אחת. צור/י קודם את התיקיה, ואז תת-תיקיה בתוכה." };
+
+    const value = sanitizeFolderName(raw);
+
+    if (!value)
+        return { ok: false, value: "", code: "empty", security: false,
+                 message: "יש להזין שם תיקיה." };
+
+    if (RESERVED_NAME_RE.test(value))
+        return { ok: false, value: "", code: "reserved", security: false,
+                 message: `"${value}" הוא שם שמור במערכת ההפעלה ולא ניתן להשתמש בו. בחר/י שם אחר.` };
+
+    return { ok: true, value, code: null, security: false, message: "" };
+}
+
+// Fire-and-forget audit report for a name the taskpane blocked before it was
+// ever submitted. The server re-validates, so this cannot inject log text.
+function reportBlockedFolderName(name, action) {
+    try {
+        if (!_treeProjectNumber) return;   // no project context (e.g. settings panel)
+        fetch(`${BACKEND_BASE}/api/project/${encodeURIComponent(_treeProjectNumber)}/folders/report-blocked`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, action, user: getCurrentUserDisplay() })
+            }).catch(() => {});
+    } catch { /* never let auditing break the UI */ }
+}
+
+// =====================================================================
 // Custom modal dialog (Outlook task panes block prompt/confirm/alert)
 // =====================================================================
 function dlg(opts) {
@@ -1312,6 +1570,7 @@ function dlg(opts) {
         const titleE = document.getElementById("modalTitle");
         const msgE   = document.getElementById("modalMsg");
         const inp    = document.getElementById("modalInput");
+        const warn   = document.getElementById("modalWarn");
         const ok     = document.getElementById("modalOk");
         const cancel = document.getElementById("modalCancel");
 
@@ -1330,15 +1589,73 @@ function dlg(opts) {
         cancel.textContent = opts.cancelLabel || "ביטול";
         cancel.style.display = opts.hideCancel ? "none" : "inline-block";
 
+        // Optional live validation (opts.strip / opts.check), used by the folder
+        // name prompts: illegal characters disappear as they are typed, while a
+        // name that must be refused shows a red warning and disables OK.
+        const showWarn = (msg) => {
+            if (!warn) return;
+            warn.textContent   = msg || "";
+            warn.style.display = msg ? "block" : "none";
+        };
+        showWarn("");
+        ok.disabled        = false;
+        inp.style.borderColor = "#ccc";
+
+        const runCheck = () => {
+            if (!opts.check) return { ok: true, value: inp.value.trim() };
+
+            if (opts.strip) {
+                const raw = inp.value;
+                const pos = inp.selectionStart == null ? raw.length : inp.selectionStart;
+                const cleaned = opts.strip(raw);
+                if (cleaned !== raw) {
+                    const removedBefore = pos - opts.strip(raw.slice(0, pos)).length;
+                    inp.value = cleaned;
+                    const np = Math.max(0, pos - removedBefore);
+                    try { inp.setSelectionRange(np, np); } catch { /* older webview */ }
+                }
+            }
+
+            const r = opts.check(inp.value);
+            showWarn(r.ok ? "" : r.message);
+            inp.style.borderColor = r.ok ? "#ccc" : "#a4262c";
+            ok.disabled = !r.ok;
+            return r;
+        };
+        // 'input' alone is not enough: in the Outlook task-pane webview a paste,
+        // cut or drag-drop can land in the field without firing it, which let
+        // illegal characters in through Ctrl+V even though typing was filtered.
+        // Listening to those events too - deferred, so the field already holds
+        // the pasted text when the check runs - closes that hole.
+        const LIVE_EVENTS = ["input", "paste", "cut", "drop", "keyup", "change"];
+        const liveHandler = () => setTimeout(runCheck, 0);
+        if (opts.check) LIVE_EVENTS.forEach(ev => inp.addEventListener(ev, liveHandler));
+
         bd.style.display = "flex";
         if (opts.input) setTimeout(() => { inp.focus(); inp.select(); }, 50);
 
         const close = (result) => {
             bd.style.display = "none";
+            ok.disabled = false;
+            inp.style.borderColor = "#ccc";
+            showWarn("");
+            if (opts.check) LIVE_EVENTS.forEach(ev => inp.removeEventListener(ev, liveHandler));
             ok.onclick = cancel.onclick = inp.onkeydown = null;
             resolve(result);
         };
-        ok.onclick     = () => close(opts.input ? { ok: true, value: inp.value.trim() } : { ok: true });
+        ok.onclick = () => {
+            if (!opts.input) return close({ ok: true });
+            if (!opts.check) return close({ ok: true, value: inp.value.trim() });
+
+            // Re-check on submit: the value may have been pasted, and a blocked
+            // name must be reported for the audit log before we refuse it.
+            const r = runCheck();
+            if (!r.ok) {
+                if (r.security && opts.onBlocked) opts.onBlocked(inp.value, r);
+                return;                       // keep the dialog open
+            }
+            close({ ok: true, value: r.value });
+        };
         cancel.onclick = () => close({ ok: false });
         inp.onkeydown  = (e) => {
             if (e.key === "Enter")  { e.preventDefault(); ok.click(); }
@@ -1347,6 +1664,14 @@ function dlg(opts) {
     });
 }
 const dlgPrompt  = (title, defaultValue, okLabel) => dlg({ title, input: true, defaultValue, okLabel });
+// Prompt for a folder name: strips illegal characters live, blocks traversal and
+// Windows-reserved names with a red warning, and reports blocked attempts.
+const dlgFolderName = (title, defaultValue, okLabel, action) => dlg({
+    title, input: true, defaultValue, okLabel,
+    strip: stripIllegalFolderChars,
+    check: checkFolderName,
+    onBlocked: (raw) => reportBlockedFolderName(raw, action)
+});
 const dlgConfirm = (title, message, okLabel)      => dlg({ title, message, okLabel });
 const dlgAlert   = (title, message)               => dlg({ title, message, hideCancel: true, okLabel: "סגור" });
 
@@ -1473,7 +1798,13 @@ let _expandedPaths      = new Set([""]);     // root always expanded
 let _treeProjectNumber  = "";     // project the tree was loaded for
 
 async function loadFolderTree(projectNumber) {
-    _treeProjectNumber = projectNumber;
+    // Reset here, not only on the success path. _treeProjectNumber was reassigned
+    // immediately while _selectedFolderPath was cleared 20 lines later, so a tree
+    // load that failed (share hiccup, project does not exist) left a folder chosen
+    // in the PREVIOUS project as the save destination for the new one - and the
+    // backend would happily create that subfolder there and file the e-mail in it.
+    _treeProjectNumber  = projectNumber;
+    _selectedFolderPath = "";
     const treeEl = document.getElementById("folderTree");
     treeEl.innerHTML = `<div style="color:#888;padding:10px 0">טוען עץ תיקיות...</div>`;
 
@@ -1492,7 +1823,6 @@ async function loadFolderTree(projectNumber) {
         const body = await res.json();
         _folderTree     = body.tree;
         _folderRootPath = body.rootPath || "";
-        _selectedFolderPath = ""; // reset to project root on every load
         renderFolderTree();
         updateDestBanner();
     } catch (e) {
@@ -1590,9 +1920,11 @@ function showFolderContextMenu(x, y, node) {
     menu.style.left = x + "px";
     menu.style.top  = y + "px";
 
-    // Disable rename / delete on the project root
+    // Disable rename / delete on the project root. Delete additionally requires an
+    // admin session on the server, so do not offer it to users who cannot use it.
     menu.querySelector('[data-action="rename"]').style.display = node.path ? "block" : "none";
-    menu.querySelector('[data-action="delete"]').style.display = node.path ? "block" : "none";
+    menu.querySelector('[data-action="delete"]').style.display =
+        (node.path && _isAdmin) ? "block" : "none";
 
     // Adjust if it overflows the viewport
     requestAnimationFrame(() => {
@@ -1659,7 +1991,7 @@ function pad2(n) { return n < 10 ? "0" + n : "" + n; }
 
 // ---------- Create / Rename / Delete ----------
 async function doCreateFolder(parentNode) {
-    const r = await dlgPrompt("שם תיקיה חדשה", suggestNewFolderName(), "צור");
+    const r = await dlgFolderName("שם תיקיה חדשה", suggestNewFolderName(), "צור", "create");
     if (!r.ok || !r.value) return;
 
     try {
@@ -1668,7 +2000,7 @@ async function doCreateFolder(parentNode) {
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ parent: parentNode.path, name: r.value })
+                body: JSON.stringify({ parent: parentNode.path, name: r.value, user: getCurrentUserDisplay() })
             }
         );
         if (!res.ok) {
@@ -1690,7 +2022,7 @@ async function doCreateFolder(parentNode) {
 }
 
 async function doRenameFolder(node) {
-    const r = await dlgPrompt("שם חדש", node.name, "שנה שם");
+    const r = await dlgFolderName("שם חדש", node.name, "שנה שם", "rename");
     if (!r.ok || !r.value || r.value === node.name) return;
 
     try {
@@ -1699,7 +2031,7 @@ async function doRenameFolder(node) {
             {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: node.path, newName: r.value })
+                body: JSON.stringify({ path: node.path, newName: r.value, user: getCurrentUserDisplay() })
             }
         );
         if (!res.ok) {
@@ -1728,7 +2060,7 @@ async function doDeleteFolder(node) {
             {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: node.path, recursive: true })
+                body: JSON.stringify({ path: node.path, recursive: true, user: getCurrentUserDisplay() })
             }
         );
         if (!res.ok) {
@@ -1925,8 +2257,16 @@ function confirmPickerSelection() {
 // =====================================================================
 // Main SaveAsPDF action
 // =====================================================================
+// A save takes seconds (body fetch, attachment encoding, Chromium render) and the
+// button used to stay live the whole time. A second click duplicated the
+// attachments on disk - AttachmentService deliberately never overwrites, so you
+// got scan.pdf, scan(1).pdf, scan(2).pdf - opened a second forward window, and
+// wrote two log rows racing on the same metadata file.
+let _saveInFlight = false;
+
 async function onSaveAsPdf() {
     const status = document.getElementById("status");
+    if (_saveInFlight) return;
     status.innerText = "";
 
     if (!validateMarkingOptions()) {
@@ -1941,11 +2281,15 @@ async function onSaveAsPdf() {
     const leaderInput    = document.getElementById("projectLeader");
     const projectLeader  = leaderInput.dataset.email || leaderInput.value.trim();
 
+    const saveBtn = document.getElementById("saveBtn");
+    _saveInFlight = true;
+    if (saveBtn) saveBtn.disabled = true;
+
     try {
         status.innerText = "אוסף נתוני הודעה…";
         const mailData = await collectMailData();
 
-        const doStamp    = document.getElementById("optStamp").checked;
+        const doStamp    = stampEnabled();
         const doCategory = document.getElementById("optCategory").checked;
         const fwdCbEl    = document.getElementById("optForwardToLeader");
         const willForward = !!(_prefs.dispatchMode && fwdCbEl?.checked);
@@ -1975,7 +2319,7 @@ async function onSaveAsPdf() {
                 notes:              _prefs.stampNotes || "",
                 template:           _prefs.stampTemplate || "",
                 forwarded:          willForward,
-                forwardedTo:        willForward ? stripEmail(projectLeader) : "",
+                forwardedTo:        willForward ? (leaderDisplayName(projectLeader) || stripEmail(projectLeader)) : "",
                 userName:           getCurrentUserDisplay(),
                 attachmentNames:    mailData.allAttachmentNames || []
             } : null,
@@ -2000,6 +2344,11 @@ async function onSaveAsPdf() {
             projectId, projectName, projectLeader,
             result, doStamp, doCategory, savedAttachmentNames
         );
+
+        // Attachments that could not be saved are a user-visible outcome, not a
+        // console detail: the PDF still lists every attachment the message had.
+        if (mailData.attachmentWarnings?.length)
+            warnings.push(...mailData.attachmentWarnings);
 
         // Dispatch: forward to project leader if requested
         const fwdCb = document.getElementById("optForwardToLeader");
@@ -2055,8 +2404,19 @@ async function onSaveAsPdf() {
         }
     } catch (err) {
         console.error(err);
+        if (isNetworkError(err)) {
+            status.innerText = "השרת ישן 😴";
+            showSleepingScreen();
+            return;
+        }
         status.innerText = "שגיאה בשמירת ההודעה ❌";
         await dlgAlert("שגיאה בשמירה", err?.message || String(err));
+    } finally {
+        _saveInFlight = false;
+        // Re-enable only if the backend is still reachable; the health check owns
+        // the disabled state in that case.
+        const btn = document.getElementById("saveBtn");
+        if (btn && _backendUp !== false) btn.disabled = false;
     }
 }
 
@@ -2064,8 +2424,83 @@ async function onSaveAsPdf() {
 // Validation / Collect / Send
 // =====================================================================
 function validateMarkingOptions() {
-    return document.getElementById("optStamp").checked ||
+    return stampEnabled() ||
            document.getElementById("optCategory").checked;
+}
+
+// ---------------------------------------------------------------------------
+// Attachment payloads
+// ---------------------------------------------------------------------------
+// getAttachmentContentAsync does not always hand back base64. An e-mail attached
+// to an e-mail comes back as `eml` (a raw MIME string), a meeting item as
+// `iCalendar`, and a OneDrive/SharePoint link attachment as `url`. This code used
+// to skip every non-base64 format with a bare `continue`, so embedded messages
+// vanished from the project folder without a word - while the PDF cover page went
+// on listing them by name, because that list is read straight off item.attachments.
+// Text formats are real content: encode them and save them like any other file,
+// and never drop an attachment silently.
+const TEXT_ATTACHMENT_FORMATS = {
+    eml:       { ext: ".eml", contentType: "message/rfc822" },
+    icalendar: { ext: ".ics", contentType: "text/calendar"  }
+};
+
+function ensureExtension(name, ext) {
+    const n = (name || "attachment").trim();
+    return n.toLowerCase().endsWith(ext) ? n : n + ext;
+}
+
+// UTF-8 safe string -> base64. btoa() on its own throws on any code point above
+// U+00FF, which is every Hebrew subject line inside an .eml.
+//
+// TextEncoder is missing from the IE11 webview that classic Outlook still uses on
+// some desktops, and core-js does not polyfill it, so fall back to the
+// encodeURIComponent trick there rather than throwing away the attachment on the
+// one host where this matters most.
+function utf8ToBase64(text) {
+    if (typeof TextEncoder !== "undefined") {
+        const bytes = new TextEncoder().encode(text);
+        let binary = "";
+        const CHUNK = 0x8000;   // fromCharCode blows its argument limit on large buffers
+        for (let i = 0; i < bytes.length; i += CHUNK)
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        return btoa(binary);
+    }
+    return btoa(encodeURIComponent(text).replace(/%([0-9A-F]{2})/g,
+        (_, hex) => String.fromCharCode(parseInt(hex, 16))));
+}
+
+// Returns { payload } for something that can be written to disk, or { reason }
+// explaining why it cannot be - the caller turns that into a visible warning.
+function buildAttachmentPayload(att, content) {
+    const format = String(content?.format || "").toLowerCase();
+    const raw    = content?.content;
+
+    if (!raw) return { reason: "הקובץ המצורף חזר ריק מ-Outlook" };
+
+    if (format === "base64") {
+        return { payload: {
+            name:        att.name,
+            contentType: att.contentType,
+            size:        att.size,
+            base64:      raw.replace(/[\r\n\t ]/g, "")
+        } };
+    }
+
+    const asText = TEXT_ATTACHMENT_FORMATS[format];
+    if (asText) {
+        return { payload: {
+            name:        ensureExtension(att.name, asText.ext),
+            contentType: asText.contentType,
+            size:        raw.length,
+            base64:      utf8ToBase64(raw)
+        } };
+    }
+
+    if (format === "url") {
+        return { reason: "קובץ ענן (OneDrive/SharePoint) — Outlook מחזיר קישור בלבד, אין תוכן לשמירה" };
+    }
+
+    return { reason: `פורמט לא נתמך (${content.format})` };
 }
 
 async function collectMailData() {
@@ -2076,33 +2511,99 @@ async function collectMailData() {
             r => r.status === Office.AsyncResultStatus.Succeeded ? resolve(r.value) : reject(r.error))
     );
 
-    // Resolve cid: inline image references to base64 data URIs so iText7 can render them.
-    // Desktop Outlook returns inline images as cid: refs; OWA may already return data URIs.
+    // Resolve cid: inline image references to data: URIs - Chromium is never
+    // allowed to fetch anything, so a cid: left in the HTML prints as a broken
+    // image with only its alt text ("Inline image").
+    //
+    // The Content-ID is NOT reliably the file name. Mail composed in Outlook uses
+    // "image001.png@01DC1234.56789ABC", so the part before the @ happened to equal
+    // the attachment name and a name-keyed lookup worked. Mail that passes through
+    // Yahoo / Gmail / Apple Mail carries an opaque Content-ID
+    // ("1349457626.1555239@mail.yahoo.com") while Exchange still names the part
+    // image0NN.png - the lookup missed, the old code wrote src="" and the
+    // signature logo printed as a broken link. So: try every sensible key, then
+    // fall back to document order (Outlook lists inline attachments in the order
+    // the body references them), and if even that fails leave the tag untouched
+    // and warn - blanking the src is what drew the broken-link box.
+    const inlineImageWarnings = [];
     if (bodyHtml.includes('cid:')) {
-        const inlineAtts = (item.attachments || []).filter(a => a.isInline);
-        const cidMap = new Map();
+        const inlineAtts   = (item.attachments || []).filter(a => a.isInline);
+        const inlineImages = [];          // document order, as Outlook reports them
+        const byKey        = new Map();
+
+        const addKey = (key, image) => {
+            const k = String(key || '').trim().toLowerCase();
+            if (k && !byKey.has(k)) byKey.set(k, image);
+        };
+
         for (const att of inlineAtts) {
             try {
                 const result = await new Promise((res, rej) =>
                     item.getAttachmentContentAsync(att.id,
                         r => r.status === Office.AsyncResultStatus.Succeeded ? res(r.value) : rej(r.error))
                 );
-                // Only embed Base64 format — skip URL-format attachments (OWA can return URLs)
-                if (result.format !== Office.MailboxEnums.AttachmentContentFormat.Base64) continue;
-                // Strip MIME line-breaks from base64 so the data URI is valid
-                const b64 = result.content.replace(/[\r\n]/g, '');
-                // cid: references use the filename (part before @) as the key
-                cidMap.set(att.name.toLowerCase(), `data:${att.contentType};base64,${b64}`);
-            } catch { /* skip — broken img placeholder beats a crash */ }
+                // Compare case-insensitively rather than against the enum object:
+                // the value is "base64", but do not rely on the host echoing that
+                // exact casing.
+                if (String(result?.format || '').toLowerCase() !== 'base64' || !result.content) {
+                    inlineImageWarnings.push(
+                        `${att.name} — תמונה מוטבעת שלא ניתן להטמיע (${result?.format || 'empty'})`);
+                    continue;
+                }
+                // Strip MIME line-breaks so the data URI stays valid
+                const b64   = result.content.replace(/[\r\n\t ]/g, '');
+                const name  = att.name || '';
+                const image = {
+                    name,
+                    dataUri: `data:${att.contentType || 'image/png'};base64,${b64}`,
+                    used: false
+                };
+                inlineImages.push(image);
+                addKey(name, image);                            // image010.png
+                addKey(name.replace(/\.[^.]+$/, ''), image);    // image010
+            } catch {
+                inlineImageWarnings.push(
+                    `${att.name} — לא ניתן לקרוא תמונה מוטבעת מ-Outlook`);
+            }
         }
-        if (cidMap.size > 0) {
+
+        if (inlineImages.length > 0) {
+            const resolveCid = (rawCid) => {
+                const cid = String(rawCid || '').replace(/^<|>$/g, '').trim().toLowerCase();
+                if (!cid) return null;
+
+                // 1. the whole Content-ID  2. the part before the @ (classic Outlook)
+                let hit = byKey.get(cid) || byKey.get(cid.split('@')[0]);
+
+                // 3. an attachment name embedded anywhere in the Content-ID
+                if (!hit) hit = inlineImages.find(
+                    img => img.name && cid.includes(img.name.toLowerCase()));
+
+                // 4. document order - the Content-ID is opaque to us
+                if (!hit) hit = inlineImages.find(img => !img.used);
+
+                if (!hit) return null;
+                hit.used = true;
+                return hit.dataUri;
+            };
+
+            let unresolved = 0;
+            // Quoted and unquoted src, and the FULL Content-ID - never split on @.
             bodyHtml = bodyHtml.replace(
-                /src\s*=\s*["']cid:([^"'@]*)(?:@[^"']*)?["']/gi,
-                (match, name) => {
-                    const uri = cidMap.get(name.toLowerCase());
-                    return uri ? `src="${uri}"` : `src=""`;
+                /src\s*=\s*(?:(["'])cid:([^"']*)\1|cid:([^\s">]+))/gi,
+                (match, quote, quoted, bare) => {
+                    const uri = resolveCid(quoted !== undefined ? quoted : bare);
+                    if (uri) return `src="${uri}"`;
+                    unresolved++;
+                    return match;   // leave as-is; src="" is what drew the broken box
                 }
             );
+            if (unresolved > 0)
+                inlineImageWarnings.push(
+                    `${unresolved} תמונות מוטבעות בגוף ההודעה לא נפתרו ולא יופיעו ב-PDF`);
+        } else if (inlineAtts.length > 0) {
+            inlineImageWarnings.push(
+                'לא ניתן היה לקרוא את התמונות המוטבעות בגוף ההודעה');
         }
     }
 
@@ -2111,15 +2612,24 @@ async function collectMailData() {
     );
 
     const attachments = [];
+    const attachmentWarnings = [...inlineImageWarnings];
     for (const att of item.attachments) {
         if (!checkedIds.has(att.id)) continue;
-        const content = await new Promise((resolve, reject) =>
-            item.getAttachmentContentAsync(att.id,
-                r => r.status === Office.AsyncResultStatus.Succeeded ? resolve(r.value) : reject(r.error))
-        );
-        // Skip URL-format attachments (new Outlook / OWA returns a download URL, not base64)
-        if (content.format !== Office.MailboxEnums.AttachmentContentFormat.Base64) continue;
-        attachments.push({ name: att.name, contentType: att.contentType, size: att.size, base64: content.content.replace(/[\r\n\t ]/g, '') });
+
+        let content;
+        try {
+            content = await new Promise((resolve, reject) =>
+                item.getAttachmentContentAsync(att.id,
+                    r => r.status === Office.AsyncResultStatus.Succeeded ? resolve(r.value) : reject(r.error))
+            );
+        } catch (err) {
+            attachmentWarnings.push(`${att.name} — לא ניתן לקרוא את הקובץ מ-Outlook (${err?.message || err})`);
+            continue;
+        }
+
+        const built = buildAttachmentPayload(att, content);
+        if (built.payload) attachments.push(built.payload);
+        else               attachmentWarnings.push(`${att.name} — ${built.reason}`);
     }
 
     // All attachment names from the original message (independent of save selection),
@@ -2142,6 +2652,16 @@ async function collectMailData() {
         ? new Date(item.dateTimeCreated).toISOString()
         : null;
 
+    // receivedDate was never sent, so EmailDto.ReceivedDate was always null. Two
+    // consequences: the PDF file name used the SAVE time instead of the message
+    // time (two messages saved in the same minute collided), and the "התקבל" stamp
+    // row was a permanent no-op because PdfService only emits it when the value is
+    // present. dateTimeCreated is the received time for an incoming message; fall
+    // back to the sent time when Outlook does not expose it.
+    const receivedDate = item.dateTimeModified
+        ? new Date(item.dateTimeModified).toISOString()
+        : sentDate;
+
     return {
         email: {
             subject:  item.subject,
@@ -2149,10 +2669,12 @@ async function collectMailData() {
             to:       fmtList(item.to),
             cc:       fmtList(item.cc),
             sentDate,
+            receivedDate,
             bodyHtml
         },
         attachments,
-        allAttachmentNames
+        allAttachmentNames,
+        attachmentWarnings
     };
 }
 
@@ -2206,6 +2728,11 @@ function sendToBackend(payload) {
         };
 
         xhr.open("POST", `${BACKEND_BASE}/api/saveaspdf`);
+        // ontimeout was dead code: XMLHttpRequest defaults to no timeout, so a hung
+        // backend left the pane stuck on "שולח נתונים לשרת…" with no way out. The
+        // server's own render budget tops out at 120 s, so 180 s is a real ceiling
+        // rather than an impatient one.
+        xhr.timeout = 180000;
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.send(JSON.stringify(payload));
     });
@@ -2240,6 +2767,7 @@ async function markMessageProcessed(item, projectId, projectName, projectLeader,
                     props.set("saveAsPdfProjectId",     projectId || "");
                     props.set("saveAsPdfProjectName",   projectName || "");
                     props.set("saveAsPdfProjectLeader", projectLeader || "");
+                    props.set("saveAsPdfProjectLeaderName", leaderDisplayName(projectLeader));
                     props.set("saveAsPdfFolder",        result?.project?.saveDir || result?.project?.fullName || "");
                     props.set("saveAsPdfFile",          result?.pdf?.fileName || "");
                     props.set("saveAsPdfAttachments",   JSON.stringify(savedAttachmentNames || []));
@@ -2267,7 +2795,7 @@ async function markMessageProcessed(item, projectId, projectName, projectLeader,
             const parts = [];
             if (f.projectId   && projectId)     parts.push(`פרויקט ${projectId}`);
             if (f.projectName && projectName)   parts.push(projectName);
-            if (f.leader      && projectLeader) parts.push(`מנהל: ${stripEmail(projectLeader)}`);
+            if (f.leader      && projectLeader) parts.push(`מנהל: ${leaderDisplayName(projectLeader) || stripEmail(projectLeader)}`);
             if (f.date)                         parts.push(dateStr);
             if (_prefs.stampNotes?.trim())      parts.push(_prefs.stampNotes.trim());
 
@@ -2340,6 +2868,44 @@ function stripEmail(text) {
     return m ? m[1].trim() : String(text).trim();
 }
 
+// Resolve a human display name ("<FirstName> <LastName>") for a leader address.
+// Looks in the project roster first - that is what .SaveAsPDF_Emploeeys.xml
+// gives us - then in the global contacts cache. Returns "" when neither knows
+// the address (callers fall back to showing the address itself).
+function leaderDisplayName(addressOrText) {
+    const addr = stripEmail(addressOrText).toLowerCase();
+    if (!addr) return "";
+    const emp = _employees.find(e => (e.email || "").toLowerCase() === addr);
+    if (emp?.displayName) return emp.displayName.trim();
+    const con = _allContacts.find(c => (c.email || "").toLowerCase() === addr);
+    return (con?.displayName || "").trim();
+}
+
+// A saved message only stores the leader's ADDRESS, and on restore neither the
+// roster nor the contacts cache is necessarily loaded yet. Fetch the project's
+// own employees XML and show the name it holds.
+async function enrichRestoredLeader(projectNumber, email) {
+    const input = document.getElementById("projectLeader");
+    const addr  = (email || "").toLowerCase();
+    if (!addr) return;
+
+    const local = leaderDisplayName(email);
+    // dataset.email guard: the user may have switched messages mid-flight.
+    if (local) { if (input.dataset.email === email) input.value = local; return; }
+    if (!projectNumber) return;
+
+    try {
+        const res = await fetch(`${BACKEND_BASE}/api/project/${encodeURIComponent(projectNumber)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.exists || !Array.isArray(data.employees)) return;
+        const hit = data.employees.find(e => (e.email || "").toLowerCase() === addr)
+                 || data.employees.find(e => e.isLeader);
+        const name = (hit?.displayName || "").trim();
+        if (name && input.dataset.email === email) input.value = name;
+    } catch { /* offline / backend down - keep showing the address */ }
+}
+
 function getCurrentUserDisplay() {
     try {
         const up = Office.context.mailbox.userProfile;
@@ -2387,12 +2953,16 @@ async function forwardToProjectLeader(item, projectId, projectName, projectLeade
 }
 
 function buildStampHtml(ctx) {
+    // Show the person, not the address.
+    const leaderLabel = ctx.projectLeader
+        ? (leaderDisplayName(ctx.projectLeader) || stripEmail(ctx.projectLeader))
+        : "";
     // Advanced template overrides field toggles when non-empty
     if (_prefs.stampTemplate?.trim()) {
         return _prefs.stampTemplate
             .replace(/\{\{projectId\}\}/g,   ctx.projectId   || "")
             .replace(/\{\{projectName\}\}/g, ctx.projectName || "")
-            .replace(/\{\{leader\}\}/g,     ctx.projectLeader || "")
+            .replace(/\{\{leader\}\}/g,     leaderLabel || "")
             .replace(/\{\{date\}\}/g,       ctx.date         || "")
             .replace(/\{\{notes\}\}/g,      _prefs.stampNotes || "");
     }
@@ -2401,7 +2971,7 @@ function buildStampHtml(ctx) {
     const lines = [];
     if (f.projectId   && ctx.projectId)     lines.push(`מספר פרויקט: ${ctx.projectId}`);
     if (f.projectName && ctx.projectName)   lines.push(`שם פרויקט: ${ctx.projectName}`);
-    if (f.leader      && ctx.projectLeader) lines.push(`מנהל/ת פרויקט: ${ctx.projectLeader}`);
+    if (f.leader      && leaderLabel)       lines.push(`מנהל/ת פרויקט: ${leaderLabel}`);
     if (f.date)                             lines.push(`תאריך: ${ctx.date}`);
     if (_prefs.stampNotes?.trim())          lines.push(_prefs.stampNotes.trim());
 
@@ -2434,12 +3004,12 @@ function tryRestoreProjectInfo() {
         if (leader) {
             const input = document.getElementById("projectLeader");
             const email = stripEmail(leader);
-            // leader may have been saved as bare email — enrich with display name if we can
-            const known = _allContacts.find(c => c.email === email);
-            input.value = (known?.displayName)
-                ? `${known.displayName}  <${email}>`
-                : leader;
+            // Prefer the name persisted with the message; otherwise show the
+            // address for now and swap in the name from the project XML.
+            const savedName = (props.get("saveAsPdfProjectLeaderName") || "").trim();
             input.dataset.email = email;
+            input.value = savedName || leaderDisplayName(email) || email;
+            if (!savedName) enrichRestoredLeader(id, email);
         }
 
         renderSavedInfo({

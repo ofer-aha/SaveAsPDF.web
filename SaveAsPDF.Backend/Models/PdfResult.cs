@@ -9,4 +9,11 @@ public class PdfResult
 
     // Diagnostic info populated only when PdfCreated == false.
     public string? FallbackReason { get; set; }
+
+    // True when SOMETHING reached disk - the PDF, or the HTML fallback. False
+    // means the save produced no file at all (share offline, no permission, disk
+    // full, path too long). Callers must not report success on false: the caller
+    // used to mark the e-mail as archived on the strength of FullPath alone, which
+    // is set even when every write threw.
+    public bool FileWritten { get; set; }
 }

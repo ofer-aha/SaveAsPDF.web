@@ -84,6 +84,38 @@ public class ProjectDataService
         WriteFiles(dir, project, employees);
     }
 
+    /// <summary>
+    /// Save that preserves fields the caller does not own.
+    /// </summary>
+    /// <remarks>
+    /// This file is shared per-project state, not per-save state. A save request
+    /// only ever carries ProjectNumber / ProjectName / ProjectDate / LastSavePath,
+    /// so writing a freshly constructed model wiped ProjectNotes,
+    /// DefaultSaveFolder, NoteToProjectLeader and Id for everyone - including
+    /// values written by the legacy desktop app.
+    ///
+    /// Employees are treated the same way: an EMPTY list means "the client had
+    /// nothing to send" (the lookup failed, or the user saved before it finished),
+    /// not "delete the roster". Clearing the roster requires an explicit non-empty
+    /// write, so a transient network blip can no longer erase the project leader.
+    /// </remarks>
+    public void Merge(string projectFolder, ProjectXmlModel incoming, List<EmployeeXmlModel>? employees)
+    {
+        var (existingProject, existingEmployees) = Load(projectFolder);
+
+        var merged = existingProject ?? new ProjectXmlModel();
+        if (!string.IsNullOrWhiteSpace(incoming.ProjectNumber)) merged.ProjectNumber = incoming.ProjectNumber;
+        if (!string.IsNullOrWhiteSpace(incoming.ProjectName))   merged.ProjectName   = incoming.ProjectName;
+        if (!string.IsNullOrWhiteSpace(incoming.ProjectDate))   merged.ProjectDate   = incoming.ProjectDate;
+        if (!string.IsNullOrWhiteSpace(incoming.LastSavePath))  merged.LastSavePath  = incoming.LastSavePath;
+
+        var mergedEmployees = (employees != null && employees.Count > 0)
+            ? employees
+            : existingEmployees;
+
+        Save(projectFolder, merged, mergedEmployees);
+    }
+
     private void WriteFiles(string dir, ProjectXmlModel project, List<EmployeeXmlModel> employees)
     {
         var projectPath   = Path.Combine(dir, ProjectXmlName);

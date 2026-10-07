@@ -43,17 +43,18 @@ public class SettingsController : ControllerBase
         // preserved. Without this, every settings save would reset them.
         var current = _settings.Load();
 
-        _settings.Save(new AppSettings
-        {
-            ProjectsRoot     = root,
-            AdminGroup       = (incoming.AdminGroup ?? "Domain Admins").Trim(),
-            StampPolicy      = incoming.StampPolicy      ?? new StampPolicy(),
-            AttachmentPolicy = incoming.AttachmentPolicy ?? new AttachmentPolicy(),
-            Admin            = current.Admin,         // preserve existing credentials
-            LogSettings      = current.LogSettings,   // preserve log retention settings
-            PdfSettings      = current.PdfSettings,   // preserve PDF output settings
-            PdfPolicy        = current.PdfPolicy      // preserve PDF lock policy
-        });
+        // Assign only what this form actually owns. Rebuilding the object from
+        // scratch meant any field the General tab does not post was reset to its
+        // default on every save: ChromiumBuild was not in the initializer at all,
+        // so choosing a Chromium build on the PDF tab and then fixing a typo here
+        // silently reverted the engine; AdminGroup and AttachmentPolicy have no UI
+        // on this page either, yet "?? default" overwrote whatever was configured.
+        current.ProjectsRoot = root;
+        if (incoming.AdminGroup       != null) current.AdminGroup       = incoming.AdminGroup.Trim();
+        if (incoming.StampPolicy      != null) current.StampPolicy      = incoming.StampPolicy;
+        if (incoming.AttachmentPolicy != null) current.AttachmentPolicy = incoming.AttachmentPolicy;
+
+        _settings.Save(current);
 
         var saved = _settings.Load();
         return Ok(new
@@ -141,7 +142,24 @@ public class SettingsController : ControllerBase
             MarginBottomCm  = Clamp(settingsIn.MarginBottomCm),
             MarginLeftCm    = Clamp(settingsIn.MarginLeftCm),
             MarginRightCm   = Clamp(settingsIn.MarginRightCm),
-            PrintBackground = settingsIn.PrintBackground
+            PrintBackground = settingsIn.PrintBackground,
+
+            // Render controls. Clamped so a bad value cannot wedge the renderer:
+            // too low and nothing ever finishes, too high and a stuck page blocks
+            // a request for minutes.
+            RenderTimeoutMs    = Math.Clamp(settingsIn.RenderTimeoutMs <= 0
+                                                ? 15000 : settingsIn.RenderTimeoutMs,
+                                            2000, 120000),
+            AllowRemoteContent = settingsIn.AllowRemoteContent,
+            AllowRemoteImages  = settingsIn.AllowRemoteImages,
+
+            // Same reasoning as the render timeout: a per-image deadline of 50 ms
+            // fetches nothing, and one of two minutes hands a mail full of dead
+            // image URLs the power to hold a save open.
+            RemoteImageTimeoutMs = Math.Clamp(settingsIn.RemoteImageTimeoutMs <= 0
+                                                  ? 4000 : settingsIn.RemoteImageTimeoutMs,
+                                              1000, 15000),
+            MergePdfAttachments  = settingsIn.MergePdfAttachments
         };
 
         var current = _settings.Load();

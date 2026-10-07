@@ -48,4 +48,34 @@ public class PdfEngineController : ControllerBase
             return StatusCode(500, new { error = "Engine update failed: " + ex.Message });
         }
     }
+
+    // -- POST /api/settings/pdf/engine/select ---------------------------------
+    // Switches the engine to an already-installed Chromium build (or back to
+    // PuppeteerSharp's default pinned build when build is empty/null). This is the
+    // rollback path for an engine update that turns out to be incompatible with the
+    // bundled PuppeteerSharp version.
+    public class SelectBuildRequest { public string? Build { get; set; } }
+
+    [HttpPost("select")]
+    public async Task<IActionResult> Select([FromBody] SelectBuildRequest? body)
+    {
+        try
+        {
+            var build = await PdfService.SelectBuildAsync(body?.Build);
+
+            var s = _settings.Load();
+            s.ChromiumBuild = string.IsNullOrEmpty(build) ? null : build;
+            _settings.Save(s);
+
+            return Ok(new
+            {
+                selected     = true,
+                currentBuild = string.IsNullOrEmpty(build) ? "(default pinned build)" : build
+            });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = "Engine switch failed: " + ex.Message });
+        }
+    }
 }

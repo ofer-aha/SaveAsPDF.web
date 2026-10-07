@@ -23,12 +23,22 @@ public static class AdminAuthService
         };
     }
 
+    /// <summary>True when no password has been set yet, so admin/admin would work.
+    /// This is the state of a fresh install and of one whose settings.json was lost
+    /// or could not be parsed - see SettingsService.Load, which returns a blank
+    /// AppSettings rather than failing.</summary>
+    public static bool IsUsingDefaults(AdminCredentials? creds) =>
+        creds == null
+        || string.IsNullOrEmpty(creds.PasswordHash)
+        || string.IsNullOrEmpty(creds.PasswordSalt);
+
     public static bool Verify(AdminCredentials? creds, string username, string password)
     {
         // First-time setup: if no creds saved yet, accept the default admin/admin.
-        if (creds == null
-            || string.IsNullOrEmpty(creds.PasswordHash)
-            || string.IsNullOrEmpty(creds.PasswordSalt))
+        // The CALLER must additionally restrict this to loopback - admin/admin is a
+        // published default, so accepting it from the LAN hands the settings API,
+        // the filesystem browser and Process.Start to anyone who can reach port 5176.
+        if (IsUsingDefaults(creds))
         {
             return username == DefaultUsername && password == DefaultPassword;
         }
@@ -49,11 +59,6 @@ public static class AdminAuthService
             return false;
         }
     }
-
-    public static bool IsUsingDefaults(AdminCredentials? creds) =>
-        creds == null
-        || string.IsNullOrEmpty(creds.PasswordHash)
-        || string.IsNullOrEmpty(creds.PasswordSalt);
 
     public static bool TryParseBasic(string? authHeader, out string user, out string pass)
     {

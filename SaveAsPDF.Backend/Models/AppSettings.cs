@@ -43,6 +43,10 @@ public class PdfPolicy
     public bool Margins         { get; set; }
     public bool PrintBackground { get; set; }
 
+    // Appending PDF attachments is a per-user choice (default off) unless the
+    // admin locks it here, in which case every save uses the admin's value.
+    public bool MergePdfAttachments { get; set; }
+
     // Build the effective PdfSettings from the admin defaults + a user's chosen
     // values. For each field: locked → admin value; otherwise the user value
     // (falling back to admin when the user sent nothing).
@@ -58,7 +62,20 @@ public class PdfPolicy
             MarginBottomCm  = Margins         ? admin.MarginBottomCm  : Clamp(u.MarginBottomCm),
             MarginLeftCm    = Margins         ? admin.MarginLeftCm    : Clamp(u.MarginLeftCm),
             MarginRightCm   = Margins         ? admin.MarginRightCm   : Clamp(u.MarginRightCm),
-            PrintBackground = PrintBackground ? admin.PrintBackground : u.PrintBackground
+            PrintBackground = PrintBackground ? admin.PrintBackground : u.PrintBackground,
+
+            // Server-side render concerns - always the admin value, never the user's.
+            // These are not exposed in the taskpane; taking them from `u` would let a
+            // stale client payload silently reset them to defaults.
+            RenderTimeoutMs      = admin.RenderTimeoutMs,
+            AllowRemoteContent   = admin.AllowRemoteContent,
+            AllowRemoteImages    = admin.AllowRemoteImages,
+            RemoteImageTimeoutMs = admin.RemoteImageTimeoutMs,
+
+            // Unlike the render concerns above this one IS exposed in the taskpane,
+            // so it follows the normal locked/unlocked rule.
+            MergePdfAttachments  = MergePdfAttachments ? admin.MergePdfAttachments
+                                                       : u.MergePdfAttachments
         };
     }
 }
@@ -79,6 +96,50 @@ public class PdfSettings
 
     // Render CSS backgrounds (colours, images). Keep on by default for the stamp banner.
     public bool   PrintBackground { get; set; } = true;
+
+    // Milliseconds to wait for the page to finish laying out before giving up and
+    // printing whatever has rendered. PuppeteerSharp's own default is 30000, which
+    // users experienced as "Timeout of 30000 ms exceeded" plus an HTML fallback.
+    // Clamped to 2000-120000 in PdfService.
+    public int    RenderTimeoutMs { get; set; } = 15000;
+
+    // Allow the renderer to fetch remote http(s) resources (external logos, banners,
+    // tracking pixels) referenced by the email body.
+    //
+    // Default false. MG01 usually cannot reach those URLs, and a hanging request
+    // prevents the page from ever settling - which is what produced the 30s timeout
+    // and the HTML fallback. Blocking them makes rendering fast and deterministic.
+    // Turn on only if the server has reliable outbound internet access.
+    public bool   AllowRemoteContent { get; set; } = false;
+
+    // Fetch remote <img> sources server-side and inline them as data: URIs before
+    // rendering. This is what makes CDN-hosted signature logos (WiseStamp and the
+    // like) appear in the PDF instead of their alt text.
+    //
+    // Default true, and safe to leave on: unlike AllowRemoteContent it cannot stall
+    // the renderer - every fetch has a deadline and a failed one simply leaves the
+    // image out. Only <img> is fetched, never stylesheets, fonts or frames, and
+    // private/loopback addresses are refused. Turn it off if the server must not
+    // make outbound requests at all: those signatures also carry tracking pixels,
+    // so an inlined image tells the sender the mail was archived and when.
+    public bool   AllowRemoteImages { get; set; } = true;
+
+    // Per-image deadline for the fetch above, in milliseconds. The whole batch is
+    // additionally capped at the render timeout (20 s ceiling), so a signature full
+    // of dead URLs costs one budget, not one budget per image.
+    public int    RemoteImageTimeoutMs { get; set; } = 4000;
+
+    // Append PDF-type attachments to the end of the generated PDF, so the archived
+    // file carries the mail and its attachments together. The attachments are still
+    // written as separate files next to it either way - this adds a combined copy,
+    // it never replaces them. Anything that is not a PDF (Word, images, embedded
+    // .eml) cannot be appended and is unaffected by this setting.
+    //
+    // Default false: the combined copy duplicates pages the user already has as
+    // separate files, so it is opt-in. Each user turns it on for themselves in
+    // the taskpane (Settings -> "סימון מצב"); an admin who wants one answer for
+    // everyone sets it here and ticks the matching lock in PdfPolicy.
+    public bool   MergePdfAttachments { get; set; } = false;
 }
 
 public class LogSettings

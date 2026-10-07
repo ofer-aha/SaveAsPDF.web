@@ -29,8 +29,11 @@ public class AdminAccountController : ControllerBase
     {
         if (body == null || string.IsNullOrWhiteSpace(body.Password))
             return BadRequest(new { error = "סיסמה חדשה נדרשת" });
-        if (body.Password.Length < 4)
-            return BadRequest(new { error = "סיסמה צריכה להכיל לפחות 4 תווים" });
+        // 4 characters is inside brute-force range even through the per-IP throttle,
+        // and this password guards the settings API, the server filesystem browser
+        // and Process.Start on the console.
+        if (body.Password.Length < 12)
+            return BadRequest(new { error = "סיסמה צריכה להכיל לפחות 12 תווים" });
 
         var s = _settings.Load();
         var username = string.IsNullOrWhiteSpace(body.Username)

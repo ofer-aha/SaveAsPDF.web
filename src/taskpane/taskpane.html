@@ -346,6 +346,65 @@
             margin-top: 6px;
             display: block;
         }
+
+        /* Slider-style toggle. The native checkbox stays in the DOM (hidden) so
+           keyboard behaviour and the .checked API are unchanged - only its
+           appearance is replaced by the track + knob below. Specificity has to
+           beat "#settingsPanel .sp-section label { display:block }" above, hence
+           the label.sp-switch qualifier. */
+        #settingsPanel .sp-section label.sp-switch {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+            cursor: pointer;
+        }
+        #settingsPanel .sp-switch > input[type="checkbox"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        #settingsPanel .sp-switch .sp-switch-track {
+            /* direction:ltr so the knob always travels left -> right. The panel
+               is RTL, and a mirrored knob sits on the "on" side while off. */
+            direction: ltr;
+            position: relative;
+            flex: 0 0 auto;
+            width: 38px;
+            height: 20px;
+            border-radius: 10px;
+            background: var(--border-strong);
+            transition: background .15s ease-in-out;
+        }
+        #settingsPanel .sp-switch .sp-switch-track::before {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+            transition: transform .15s ease-in-out;
+        }
+        #settingsPanel .sp-switch > input:checked + .sp-switch-track {
+            background: var(--primary);
+        }
+        #settingsPanel .sp-switch > input:checked + .sp-switch-track::before {
+            transform: translateX(18px);
+        }
+        #settingsPanel .sp-switch > input:focus-visible + .sp-switch-track {
+            box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary);
+        }
+        #settingsPanel .sp-switch > input:disabled + .sp-switch-track {
+            opacity: .5;
+            cursor: not-allowed;
+        }
+        #settingsPanel .sp-switch > input:disabled ~ .sp-switch-text {
+            color: var(--muted);
+        }
         #settingsPanel details {
             margin-top: 8px;
             border-top: 1px dashed var(--border);
@@ -905,14 +964,31 @@
                     max-height:200px;overflow-y:auto;border-radius:0 0 4px 4px"></div>
     </div>
 
+    <!-- Action button -->
+    <button id="saveBtn">
+        שמור כ‑PDF
+    </button>
+
+    <!-- Destination indicator (shown when folder tree loaded) -->
+    <div id="destBanner" style="display:none;margin-top:8px;padding:6px 10px;background:var(--primary-light);border-radius:6px;font-size:12px">
+        <span style="color:var(--muted)">שמירה אל:</span>
+        <span id="destPath" style="font-weight:600;direction:ltr"></span>
+    </div>
+
+    <!-- Status area -->
+    <div id="status"></div>
+
+    <!-- Upload progress bar (shown while sending to server) -->
+    <div id="uploadProgress">
+        <div id="uploadProgressTrack">
+            <div id="uploadProgressBar"></div>
+        </div>
+        <div id="uploadProgressLabel">0%</div>
+    </div>
+
     <!-- Message marking options -->
     <fieldset>
-        <legend>אופן סימון ההודעה לאחר השמירה</legend>
-
-        <label>
-            <input type="checkbox" id="optStamp" checked />
-            הוספת חותמת עם פרטי הפרויקט בגוף ההודעה
-        </label>
+        <legend>נתוני הודעה:</legend>
 
         <div id="categoryRow">
             <label>
@@ -958,12 +1034,6 @@
         </div>
     </fieldset>
 
-    <!-- Destination indicator (shown when folder tree loaded) -->
-    <div id="destBanner" style="display:none;margin-top:8px;padding:6px 10px;background:var(--primary-light);border-radius:6px;font-size:12px">
-        <span style="color:var(--muted)">שמירה אל:</span>
-        <span id="destPath" style="font-weight:600;direction:ltr"></span>
-    </div>
-
     <!-- Saved-message info card (shown when an already-tagged message is opened) -->
     <div id="savedInfo" class="card" style="display:none;margin-top:12px">
         <div class="card-title">✅ הודעה זו כבר נשמרה</div>
@@ -988,6 +1058,9 @@
             <div id="modalMsg" style="font-size:13px;color:#444;margin-bottom:12px;line-height:1.45;word-break:break-word"></div>
             <input id="modalInput" type="text"
                    style="width:100%;display:none;margin-bottom:12px;padding:8px 10px;font-size:14px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" />
+            <div id="modalWarn"
+                 style="display:none;margin:-6px 0 12px;padding:8px 10px;font-size:12.5px;line-height:1.45;
+                        color:#a4262c;background:#fdf3f4;border:1px solid #f1c7ca;border-radius:4px"></div>
             <div style="display:flex;gap:8px">
                 <button id="modalOk" class="primary" style="margin:0;flex:1">אישור</button>
                 <button id="modalCancel" style="margin:0">ביטול</button>
@@ -1022,6 +1095,21 @@
                         <input type="checkbox" id="spDefaultStamp" />
                         הוסף חותמת כברירת מחדל
                     </label>
+
+                    <label class="sp-switch">
+                        <input type="checkbox" id="spMergePdfAttachments" />
+                        <span class="sp-switch-track"></span>
+                        <span class="sp-switch-text">צרף קבצי PDF מצורפים לסוף הקובץ</span>
+                    </label>
+                    <div class="sp-hint" style="margin-top:4px">
+                        הקבצים המצורפים נשמרים תמיד כקבצים נפרדים לצד ה‑PDF. אפשרות זו מוסיפה
+                        עותק מאוחד: עמודי קבצי ה‑PDF המצורפים יתווספו לסוף הקובץ הנשמר. קבצים
+                        שאינם PDF (Word, תמונות, הודעות מוטבעות) אינם מושפעים.
+                    </div>
+                    <div id="spMergePdfLockNote" class="sp-hint"
+                         style="display:none;margin-top:4px;color:var(--danger)">
+                        אפשרות זו נקבעת על ידי מנהל המערכת.
+                    </div>
 
                     <div style="margin-top:10px;font-size:12px;color:var(--muted)">שדות לכלול בחותמת:</div>
                     <label><input type="checkbox" id="spFieldProjectId" /> מספר פרויקט</label>
@@ -1220,22 +1308,6 @@
         <input type="checkbox" id="optForwardToLeader" style="margin-left:6px" />
         העבר למנהל פרויקט
     </label>
-
-    <!-- Action button -->
-    <button id="saveBtn">
-        שמור כ‑PDF
-    </button>
-
-    <!-- Status area -->
-    <div id="status"></div>
-
-    <!-- Upload progress bar (shown while sending to server) -->
-    <div id="uploadProgress">
-        <div id="uploadProgressTrack">
-            <div id="uploadProgressBar"></div>
-        </div>
-        <div id="uploadProgressLabel">0%</div>
-    </div>
 
     <!-- ============================================================
          About panel (overlay)

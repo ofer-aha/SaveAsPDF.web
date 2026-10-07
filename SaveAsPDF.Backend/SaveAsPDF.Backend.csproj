@@ -42,7 +42,13 @@
     <!-- PuppeteerSharp drives a headless Chromium instance for HTML→PDF rendering.
          Chromium handles Hebrew/RTL text, bidi, and system fonts natively — no iText7
          BiDi workarounds needed. Chromium is downloaded automatically on first use. -->
-    <PackageReference Include="PuppeteerSharp" Version="20.0.2" />
+    <PackageReference Include="PuppeteerSharp" Version="25.8.0" />
+    <!-- PDFsharp merges PDF-type attachments into the generated PDF. MIT-licensed
+         and pure managed code - deliberately not iText7, which is AGPL and whose
+         HTML renderer was dropped from this project for mangling Hebrew RTL. Only
+         the page-import half of the library is used here, so no font resolver is
+         required. -->
+    <PackageReference Include="PdfSharp" Version="6.2.4" />
   </ItemGroup>
 
 </Project>

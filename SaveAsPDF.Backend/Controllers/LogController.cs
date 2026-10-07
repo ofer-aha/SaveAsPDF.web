@@ -112,9 +112,16 @@ public class LogController : ControllerBase
         return File(body, "text/csv; charset=utf-8", filename);
     }
 
+    // Quoting alone is not enough: Excel evaluates a leading = + - @ (or tab/CR)
+    // even inside a quoted field, and every column here is attacker-controlled -
+    // Username comes from the save request, Subject from the e-mail. The export
+    // is deliberately written with a BOM so Excel opens it directly, which is
+    // exactly the path a formula payload would take. Prefixing an apostrophe
+    // forces Excel to treat the value as text; it is stripped on display.
     private static string CsvField(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "\"\"";
+        if ("=+-@\t\r".IndexOf(value[0]) >= 0) value = "'" + value;
         return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
 

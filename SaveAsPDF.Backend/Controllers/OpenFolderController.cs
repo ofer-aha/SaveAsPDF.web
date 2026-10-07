@@ -16,18 +16,27 @@ public class OpenFolderController : ControllerBase
         if (string.IsNullOrWhiteSpace(req?.Path))
             return BadRequest(new { error = "Path is required" });
 
-        // Normalise separators and resolve to absolute path
-        var target = System.IO.Path.GetFullPath(req.Path.Trim());
+        // Reject NUL and alternate-data-stream syntax before touching the filesystem.
+        if (req.Path.Contains('\0'))
+            return BadRequest(new { error = "Invalid path" });
 
-        // Security: must be under the configured ProjectsRoot
+        string target;
+        try { target = System.IO.Path.GetFullPath(req.Path.Trim()); }
+        catch { return BadRequest(new { error = "Invalid path" }); }
+
+        // Security: must be under the configured ProjectsRoot.
+        //
+        // This check used to be skipped entirely when ProjectsRoot was unset, which
+        // meant an unconfigured server would open ANY directory on the machine. Fail
+        // closed instead - no configured root means no browsing.
         var root = _settings.Load().ProjectsRoot;
-        if (!string.IsNullOrWhiteSpace(root))
-        {
-            var rootFull = System.IO.Path.GetFullPath(root.TrimEnd('\\', '/'));
-            var rel      = System.IO.Path.GetRelativePath(rootFull, target);
-            if (rel.StartsWith("..") || System.IO.Path.IsPathRooted(rel))
-                return BadRequest(new { error = "Path is outside the projects root" });
-        }
+        if (string.IsNullOrWhiteSpace(root))
+            return BadRequest(new { error = "Projects root is not configured. Open /admin to set it." });
+
+        var rootFull = System.IO.Path.GetFullPath(root.TrimEnd('\\', '/'));
+        var rel      = System.IO.Path.GetRelativePath(rootFull, target);
+        if (rel.StartsWith("..", StringComparison.Ordinal) || System.IO.Path.IsPathRooted(rel))
+            return BadRequest(new { error = "Path is outside the projects root" });
 
         if (!Directory.Exists(target))
             return NotFound(new { error = $"Folder does not exist: {target}" });

@@ -22,4 +22,10 @@ public class SaveAsPdfRequest
 	// The server merges these with the admin PdfPolicy: locked fields are forced
 	// to the admin value, unlocked fields use what the user sent here.
 	public PdfSettings? PdfSettings { get; set; }
+
+	// Set only when the user has been asked "this project does not exist - create
+	// it?" and said yes. Without it the server refuses to invent a project tree,
+	// so a mistyped number is a visible 404 instead of a save into a folder nobody
+	// knows about.
+	public bool CreateProjectIfMissing { get; set; }
 }
