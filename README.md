@@ -31,6 +31,10 @@ It then commits everything as `Release vX.Y.Z`, tags `vX.Y.Z` and pushes branch 
 ### Backup
 
 `C:\dev\SaveAsPDF\Backup-SaveAsPDF.ps1` (run elevated on MG01) zips what git does not hold - the help pages (`publish/` is git-ignored), `appsettings.Production.json`, `cert.pfx`, and the service's `settings.json` / `logs.json` - to `C:\Apps\AdminCenter\Backups\`, then commits + pushes. `-Preview` shows what it would do, `-NoGit` skips the push.
+
+### Secret scan
+
+The GitHub repo is **public**. `C:\dev\SaveAsPDF\Scan-Secrets.ps1` (read-only, run on MG01) scans every commit plus the files the next commit would include for private keys (`.pfx`/`.key`/`.pem`, PEM blocks), tokens, hard-coded passwords and server-only config. Public certificates are not flagged. Exit code 0 = clean, 1 = findings. Log: `C:\Apps\AdminCenter\Scan-Secrets_<yyyyMMdd>.log`. `-NoHistory` scans the working tree only.
 Keep all `.ps1` files **pure ASCII** (PowerShell 5.1 reads BOM-less files as ANSI).
 
 ### Optional IIS hosting
